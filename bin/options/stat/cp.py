@@ -241,8 +241,7 @@ if __name__ == "__main__":
                 'ticker_path': 'data/stocks/tickers.json'
     }   
     cp = CP(connections)
-    st = cp.stocks['equities']
-    st = ['^RUT']
+    st = cp.stocks['all_stocks']
     for i in tqdm(st):cp._intialized_cp(i)
     # df = cp.daily_option_stats('spy', write = True).set_index('gatherdate')
     # cols = list(df.filter(regex='straddle|exp|iv'))

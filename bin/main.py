@@ -78,7 +78,7 @@ class Manager:
 		self.Pricedb = Prices(connections)
 		# self.Earningsdb = Earnings(connections)
 		self.performance = performance(connections) 
-		# self.Notifications = Notifications(connections)
+		self.Notifications = Notifications(connections)
 		self.Scanner = Scanner(connections)
 		self.dxp = dxp(connections) 
 		
