@@ -27,7 +27,6 @@ def Initialize():
                 'vol_db': f'{pre}data/options/vol.db',
                 'change_db': f'{pre}data/options/option_change.db', 
                 'option_db': f'{pre}data/options/options.db', 
-                'options_stat': f'{pre}data/options/options_stat.db',
                 ##### Earnings + Company Info ###########################
                 'earnings_dict': f'{pre}data/earnings/earnings.pkl',
                 'stock_names' : f'{pre}data/stocks/stock_names.db',

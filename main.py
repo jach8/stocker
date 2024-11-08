@@ -13,7 +13,6 @@ class Pipeline(Manager):
     def __init__(self, connections = None):
         super().__init__(connections)
 
-    
     def update_options(self):
         out = []
         begin = '\033[92m'
