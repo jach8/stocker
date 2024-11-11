@@ -1,7 +1,5 @@
 """
-Call Put Percentage Database Setup Script. 
-
-
+Option Chain Flow Monitor:
 """
 
 import sys
@@ -18,6 +16,15 @@ from bin.options.bsm.bsModel import bs_df
 
 class CP(Connector):
     def __init__(self, connections):
+        """
+        Option Chain Flow Monitor: 
+            - Initialize the table for each stock 
+            
+        Args: 
+            - connections: dictionary of connection paths 
+            
+            
+        """
         super().__init__(connections)
         
     def _custom_query_option_db(self, q, c):
@@ -27,6 +34,30 @@ class CP(Connector):
         return d
     
     def _cp(self, stock, n = 60):
+        """
+        Read the Option Chain Data for a single stock From the Database and Aggraegate the data: 
+            - Produce the following columns for each day: 
+                1. call_vol: Total Call Volume
+                2. put_vol: Total Put Volume
+                3. total_vol: Total Volume
+                4. call_oi: Total Call Open Interest
+                5. put_oi: Total Put Open Interest
+                6. total_oi: Total Open Interest
+                7. call_prem: Total Call Premium
+                8. put_prem: Total Put Premium
+                9. total_prem: Total Premium
+                10. call_iv: Average Call Implied Volatility
+                11. put_iv: Average Put Implied Volatility
+                12. atm_iv: Average Implied Volatility for At-The-Money Options
+                13. otm_iv: Average Implied Volatility for Out-of-The-Money Options
+                14. put_spread: Average Spread for Put Options
+                15. call_spread: Average Spread for Call Options
+        Args:
+            - stock: stock symbol 
+            - n: number of days to consider
+        Returns:
+            - DataFrame        
+        """
         gdate = self._max_dates(stock)
         q = f'''
         select 
