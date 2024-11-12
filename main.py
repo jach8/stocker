@@ -73,7 +73,7 @@ class Pipeline(Manager):
 
 if __name__ == "__main__":
     print("\n12.8 Concentrate the mind upon Me, apply spiritual intelligence for Me; verily you will reside with me after this existence without a doubt.\n")
-    # Initialize()
+    Initialize()
     m = Pipeline()
     # m.master_run()
     # m.close_connection()

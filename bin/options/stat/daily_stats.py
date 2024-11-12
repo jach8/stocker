@@ -13,7 +13,7 @@ class daily_option_stats:
     Daily Option Statistics For all stocks 
     
     """
-    def __init__(self, connections:dict):
+    def __init__(self, connections):
         self.vol_db = sql.connect(connections['vol_db'])
         print('\n\n')
         self.cmap = {
