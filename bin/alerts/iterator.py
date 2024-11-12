@@ -4,6 +4,7 @@ from bin.options.optgd.db_connect import Connector as Manager
 import pandas as pd
 from tqdm import tqdm
 
+
 class Iterator(Manager):
     def __init__(self, connections):
         super().__init__(connections)
@@ -31,7 +32,7 @@ class Iterator(Manager):
         lodf = self._iterate_function(func, group = group)
         return pd.concat(lodf)
     
-    def query_iteroator(self, query, connection, group = 'etf'):
+    def query_iteroator(self, query, connection, group = 'all_stocks'):
         """ query must be a function that intakes one parameter: a stock """
         stocks = self.get_stocks(group)
         pbar =  tqdm(stocks, desc = 'Iterating')
