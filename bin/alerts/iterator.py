@@ -1,15 +1,8 @@
-import pandas as pd 
-import numpy as np 
-import matplotlib.pyplot as plt
-import datetime as dt 
-from tqdm import tqdm 
-import scipy.stats as st 
-import time
-import json 
 import sys
 sys.path.append('/Users/jerald/Documents/Dir/Python/stocker')
 from bin.options.optgd.db_connect import Connector as Manager
-
+import pandas as pd
+from tqdm import tqdm
 
 class Iterator(Manager):
     def __init__(self, connections):
@@ -22,10 +15,19 @@ class Iterator(Manager):
     def _iterate_function(self, func, group = 'all_stocks'):
         stocks = self.get_stocks(group)
         pbar = tqdm(stocks, desc = 'Iterating')
-        out = [func(x) for x in pbar]
-        return out
+        return [func(x) for x in pbar]
     
     def dataframe_iterator_function(self, func, group = 'all_stocks'):
+        """
+        Applies a given function to a group of dataframes and concatenates the results.
+
+        Parameters:
+        func (callable): The function to apply to each dataframe.
+        group (str): The group of dataframes to apply the function to. Defaults to 'all_stocks'.
+
+        Returns:
+        pd.DataFrame: A concatenated dataframe resulting from applying the function to each dataframe in the group.
+        """
         lodf = self._iterate_function(func, group = group)
         return pd.concat(lodf)
     
@@ -52,9 +54,9 @@ if __name__ == '__main__':
     
     def test_func(stock, conn = it.vol_db):
         """ Return todays option statistics """
-        out = pd.read_sql('select * from {} order by date(gatherdate) desc limit 1'.format(stock), con = conn)
-        out.insert(0, 'stock', stock)
-        return out
+        df = pd.read_sql('select * from {} order by date(gatherdate) desc limit 1'.format(stock), con = conn)
+        df.insert(0, 'stock', stock)
+        return df
     
     # out = it._iterate_function(test_func, group = 'etf')
     
@@ -63,16 +65,16 @@ if __name__ == '__main__':
     
 
     def test_query(stock):
-        out = f'''
+        ts = f'''
         select * from "{stock}" 
         where datetime(gatherdate) = (select max(datetime(gatherdate)) from "{stock}") 
         and volume > 1000 
         and oi_chg > 0
         and impliedvolatility < iv_avg_30d
         '''
-        return out
+        return ts
 
 
-    out = it.query_iteroator(test_query, it.change_db)
-    print(out)
+    df = it.query_iteroator(test_query, it.change_db)
+    print(df)
         
