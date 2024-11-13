@@ -141,9 +141,7 @@ class Stats(Exp, ChangeVars, CP):
         
         
         """
-        sg = self.reverse_dict()
-        
-        
+        sg = self.reverse_dict()    
         pbar = tqdm(self.stocks['all_stocks'], desc = "CP...")
         out = []
         for stock in pbar:
@@ -151,54 +149,12 @@ class Stats(Exp, ChangeVars, CP):
                 df = pd.read_sql(f'''select * from "{stock}" order by datetime(gatherdate) asc''', self.vol_db, parse_dates = ['gatherdate'])
                 df.gatherdate = pd.to_datetime(df.gatherdate, format = '%Y-%m-%dT%H:%M:%S')
                 df.insert(0, 'stock', stock)
-                df.total_oi = df.total_oi.ffill()
-                df.call_oi = df.call_oi.ffill()
-                df.put_oi = df.put_oi.ffill()
-                df =df.round(4)
-                if df.shape[0] == 0:
-                    if self.verbose: 
-                        print(stock)
-                    continue
-                ### Calculate Moving Averages 
-                sma_vol = df['total_vol'].rolling(30).mean()
-                std_vol = df['total_vol'].rolling(30).std()
-                sma_oi = df['total_oi'].rolling(30).mean()
-                std_oi = df['total_oi'].rolling(30).std()
-                avg_call_change = df['call_oi_chng'].rolling(30).mean()
-                avg_put_change = df['put_oi_chng'].rolling(30).mean()
-                pcr_vol = df['put_vol'] / df['call_vol']
-                avg_pcr_vol = pcr_vol.rolling(30).mean()
-                pcr_oi = df['put_oi'] / df['call_oi']
-                avg_pcr_oi = pcr_oi.rolling(30).mean()
-                
-            
-                #### Insert Moving Averages 
-                df.insert(1, 'group', df.stock.map(sg)) 
-                df.insert(3, 'avg_oi', sma_oi)
-                df.insert(6, 'total_oi_std', std_oi)
-                df.insert(6, 'avg_call_change', avg_call_change)
-                df.insert(9, 'avg_put_change', avg_put_change)
-                df.insert(3, 'avg_vol', sma_vol)    
-                df.insert(4, 'pcr_vol', pcr_vol)
-                df.insert(5, 'avg_pcr_vol', avg_pcr_vol)
-                df.insert(5, 'pcr_oi', pcr_oi)
-                df.insert(6, 'avg_pcr_oi', avg_pcr_oi)
-                
-                # Drop NAN and Convert to Integers
-                df.dropna(inplace = True)
-                df['avg_vol'] = df['avg_vol'].astype(int)
-                df['total_vol'] = df['total_vol'].astype(int)
-                df['avg_oi'] = df['avg_oi'].astype(int)
-                df['total_oi'] = df['total_oi'].astype(int)
-                df['avg_call_change'] = df['avg_call_change'].astype(int)
-                df['avg_put_change'] = df['avg_put_change'].astype(int)
-                
                 out.append(df.tail(1))
-                out = pd.concat([x for x in out if x.shape[0] > 0])
-                out.to_sql('daily_option_stats', self.stats_db, if_exists = 'replace', index = False)
             except:
-                print(f'Error: {stock}')
-                continue
+                pass
+        push_df = pd.concat(out, axis = 0)
+        push_df.to_sql('daily_option_stats', self.stats_db, if_exists = 'replace', index = False)   
+        return push_df
         
     
     
@@ -210,4 +166,4 @@ if __name__ == "__main__":
     from bin.main import get_path
     connections = get_path()
     oc = Stats(connections)
-    print(oc._init_em_tables())
+    print(oc._all_cp())

@@ -274,10 +274,6 @@ if __name__ == "__main__":
     cp = CP(connections)
     st = cp.stocks['all_stocks']
     for i in tqdm(st):cp._intialized_cp(i)
-    # df = cp.daily_option_stats('spy', write = True).set_index('gatherdate')
-    # cols = list(df.filter(regex='straddle|exp|iv'))
-    # print(df[cols])
-    # df = cp.cp_query('spy')
-    # print(df["2023-06-01":])
-    # print('\n\n')
-    cp.close_connections()
+    
+    df = cp.cp_query('spy')
+    print(df)

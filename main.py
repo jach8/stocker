@@ -64,8 +64,6 @@ class Pipeline(Manager):
     def master_run(self):
         # Update the stock prices
         self.update_stock_prices()
-        # Print the price performance
-        self.performance.show_performance()
         # Update the options data 
         self.update_options() 
         self.workflow()
@@ -73,8 +71,6 @@ class Pipeline(Manager):
 
 if __name__ == "__main__":
     print("\n12.8 Concentrate the mind upon Me, apply spiritual intelligence for Me; verily you will reside with me after this existence without a doubt.\n")
-    Initialize()
+    # Initialize()
     m = Pipeline()
-    # m.master_run()
-    # m.close_connection()
     m.master_run()
