@@ -14,6 +14,7 @@ This is a stock tracking app that allows users to track prices, and options for 
 - [Usage](#usage)
 - [Price Module](#price-module)
 - [Options Module](#options-module)
+    - [Database Structure:](#database-structure)
 - [Contributing](#contributing)
 - [License](#license)
 
@@ -96,6 +97,37 @@ Contains 3 main Modules:
      -  This method is still in development, and will be updated in the future, if you would like to contribute to this project, please see the [Contributing](#contributing) section.
 
 
+#### Database Structure: 
+- Options
+  - option_change.db
+    - contains the change in the option chain data for each stock. 
+  - options.db
+    - contains the raw option chain for each stock
+  - stats.db
+    - Contains tables that are designed to search for specific criteria in the option chain data.
+    - Tables: 
+      - amnt:
+        - These are stocks where the change in open interest is greater than the previous day's volume. Suggesting that after-hours trades occured. 
+      - exp_ext
+        - The expected move for all future expirations (by stock)
+      - expected_moves
+        - The current expected move for each stock in one table (front month expiry)
+      - iv_diff
+        - Contracts that with current IV less than the 30 day avg.
+      - oi_chg
+        - Highest change in open interest 
+      - pct_chg
+        - Highest Percentage change in open interest 
+      - voi
+        - Highest Inflows Contracts
+      - volume
+        - Highest Volume Contracts
+  - tracking_values.db
+    - TBD
+  - tracking.db
+    - TBD
+  - vol.db
+    - Contains the Historical Option Stats aggregated by day for each stock in the database.
 
 
 ## Contributing
@@ -104,7 +136,6 @@ If you would like to contribute to this project, please fork the repository, and
 
 ## License
 This project is licensed under the MIT License - see the LICENSE.md file for details
-
 
 
 
