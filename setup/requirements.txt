@@ -1,0 +1,10 @@
+numpy
+pandas
+tqdm
+yfinance
+sqlite3
+json
+re
+matplotlib
+scipy
+mplfinance
