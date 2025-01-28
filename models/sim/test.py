@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import sys
 from tqdm import tqdm   
-sys.path.append('/Users/jerald/Documents/Dir/Python/stocker')
 from models.sim.lsm import OptionSim as sim
 
 def prep_df(df, rf_rate = 0.45, nsims = 100):

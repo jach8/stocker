@@ -1,12 +1,11 @@
 import sqlite3 as sql
 import pandas as pd
 import datetime as dt
-import nasdaqdatalink
+# import nasdaqdatalink
 import os 
 
 import sys
-sys.path.append('/Users/jerald/Documents/Dir/Python/stocker')
-from bin.bonds.qkeys.card import nasdaq as nd 
+# from bin.bonds.qkeys.card import nasdaq as nd 
 
 class bonds():
     def __init__(self, connections):
