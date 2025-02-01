@@ -1,5 +1,5 @@
 ''' 
-    This file will find Option Plays for a given stock. It was orginally written to find plays based on the implied move, but we will modify it 
+    This file will find Option  for a given stock. It was orginally written to find plays based on the implied move, but we will modify it 
         so that we can also give the class a range or percentage, which we will determine exteranlly from the trend module,or volatility estimation model. 
         
 '''
@@ -18,6 +18,11 @@ sys.path.append('/Users/jerald/Documents/Dir/Python/Stocks')
 
 
 class dxp:
+    """
+    Double Expectation Policy 
+    
+    
+    """
     def __init__(self, connections):
         self.stocks = json.load(open(connections['ticker_path'], 'r'))['all_stocks']
         self.option_db = sql.connect(connections['option_db'])

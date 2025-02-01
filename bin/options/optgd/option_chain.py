@@ -1,8 +1,4 @@
-"""
-Uses Yahoo Finance API to obtain option chain data for a stock. 
-    1. Returns the option chain data. 
 
-"""
 
 import sys
 import pandas as pd 
@@ -10,18 +6,40 @@ import numpy as np
 import yfinance as yf 
 import datetime as dt 
 
-sys.path.append('/Users/jerald/Documents/Dir/Python/stocker')
+sys.path.append('/Users/jerald/Documents/Dir/Python/Stocks')
 from bin.options.optgd.db_connect import Connector
-from bin.options.bsm.bs2 import bs_df as new_bsdf
-from bin.options.bsm.bsModel import bs_df
+from models.bsm.bs2 import bs_df as new_bsdf
+from models.bsm.bsModel import bs_df
 
 
 class OptionChain(Connector):
     def __init__(self, connections):
+        """
+        Module for obtaining the option chain from Yahoo Finance. 
+        
+        Args: 
+            connections: Dictionary of the connections.
+        
+        Methods:
+            get_option_chain(stock:str) -> pd.DataFrame: Get the option chain for a stock.
+            _check_for_stock_in_option_db(stock:str) -> bool: Check if the stock is in the option database.
+            insert_new_chain(stock:str) -> pd.DataFrame: Insert a new chain into the database.
+        
+        """
         super().__init__(connections)
         
-    def get_option_chain(self, stock):
-        """ Gets the option chain from Yahoo Finance for a stock. """
+    def get_option_chain(self, stock:str) -> pd.DataFrame:
+        """ 
+        Gets the option chain from Yahoo Finance for a stock. 
+        
+        Args: 
+            stock (str): Stock symbol.
+        
+        Returns:
+            pd.DataFrame: Option Chain DataFrame.
+        
+        
+        """
         try:
             symbol = stock
             tk = yf.Ticker(symbol)
@@ -55,97 +73,58 @@ class OptionChain(Connector):
         except Exception as e:
             print(e)
             return None
+        
+    def _check_for_stock_in_option_db(self, stock:str) -> bool:
+        """ 
+        Check if the stock is in the option database. 
+        Args:
+            stock (str): Stock Symbol
+        
+        Returns:
+            bool: True if the stock is in the database, False if not.
+        
+        """
+        cursor = self.option_db.cursor()
+        query = f"""
+        select exists(select 1 from sqlite_master where type='table' and name='{stock}')
+        """
+        valid = cursor.execute(query).fetchone()[0]
+        return bool(valid)
+        
+            
+    def insert_new_chain(self, stock: str) -> pd.DataFrame:
+        """
+        Insert a new chain into the database. If the stock is in the database, append the new chain.
+        Otherwise the chain will be replaced and added to the database. 
+        
+        Args:
+            stock (str): Stock Symbol
+        
+        Returns:
+            pd.DataFrame: Option Chain DataFrame.    
     
-    def insert_new_chain(self, stock):
-        """ Get New Option Chain and Update the database. """
+        """
         df = self.get_option_chain(stock)
         if df is None:
             return None
         else:
             if len(df)> 0:
                 if self._check_for_stock_in_option_db(stock) == True:
-                    df.to_sql(stock, self.write_option_db, if_exists = 'replace', index = False)
-                else:
                     df.to_sql(stock, self.write_option_db, if_exists = 'append', index = False)
+                else:
+                    df.to_sql(stock, self.write_option_db, if_exists = 'replace', index = False)
                 self.write_option_db.commit()
             return df
         
-    def new_bsdf(self, stock):
-        """ Update the option chain with the new black scholes model """
-        df = pd.read_sql(f"SELECT * FROM '{stock}' where date(gatherdate) >= date('2024-01-01')", self.option_db)
-        bsdf = new_bsdf(df)
-        # bsdf.to_sql(stock, self.write_option_db, if_exists = 'replace', index = False)
-        return bsdf
     
-    def new_bsdf_df(self, df):
-        return new_bsdf(df)
-    
-    def parse_change_db(self, df):
-        """ Parse the output from the change_db or any dataframe where contractsymbol is in the dataframe
-
-            args: 
-                -df : pd.DataFrame containing contractsymbol in the columns 
-        
-        """
-        out_desc = {x: self.describe_option(x) for x in df.contractsymbol.to_list()}
-        out_desc_df = pd.DataFrame(out_desc).T.reset_index()
-        out_desc_df.columns = ['contractsymbol', 'stock', 'type', 'strike', 'expiry']
-        out_desc_df['stock'] = out_desc_df.stock.apply(lambda x: x.replace('$', ''))
-        out_df = out_desc_df.merge(df, on = 'contractsymbol')
-        out_df.expiry = pd.to_datetime(out_df.expiry)
-        return out_df
-    
-    
-    def today_option_chain(self, stock, bsdf = True):
-        """ Get the option chain for today. """
-        cursor = self.option_db.cursor()
-        lod = cursor.execute(f"SELECT * FROM '{stock}' where date(gatherdate) = (select max(date(gatherdate)) from {stock})").fetchall()
-        df = pd.DataFrame(lod, columns = [x[0] for x in cursor.description])
-        df.gatherdate = pd.to_datetime(df.gatherdate)
-        df.expiry = pd.to_datetime(df.expiry)
-        df = df.drop(columns = ['lasttradedate'])
-        df['moneyness'] = df.strike / df.stk_price
-        if bsdf == True:
-            return new_bsdf(df)
-        else:
-            return df
-     
-    def today_option_chain_cdb(self, stock):
-        """ Get the option chain for today. """
-        cursor = self.change_db.cursor()
-        lod = cursor.execute(f"SELECT * FROM '{stock}' where date(gatherdate) = (select max(date(gatherdate)) from '{stock}')").fetchall()
-        df = pd.DataFrame(lod, columns = [x[0] for x in cursor.description])
-        df.gatherdate = pd.to_datetime(df.gatherdate)
-        df = self.parse_change_db(df)
-        df.expiry = pd.to_datetime(df.expiry)
-        df['moneyness'] = df.strike / df.stk_price
-        return df
-     
 if __name__ == "__main__":
     import time
     from tqdm import tqdm
-
-    connections = {
-                ##### Price Report ###########################
-                'daily_db': 'data/prices/stocks.db', 
-                'intraday_db': 'data/prices/stocks_intraday.db',
-                'ticker_path': 'data/stocks/tickers.json',
-                ################################################
-                'inactive_db': 'data/options/log/inactive.db',
-                'backup_db': 'data/options/log/backup.db',
-                'tracking_values_db': 'data/options/tracking_values.db',
-                'tracking_db': 'data/options/tracking.db',
-                'stats_db': 'data/options/stats.db',
-                'vol_db': 'data/options/vol.db',
-                'change_db': 'data/options/option_change.db', 
-                'option_db': 'data/options/options.db', 
-                'options_stat': 'data/options/options_stat.db',
-                'ticker_path': 'data/stocks/tickers.json'
-    }
-
+    from bin.main import Manager, get_path
+    connections = get_path()
     start_time = time.time()
     oc = OptionChain(connections)
-    lodf =  [print(oc.new_bsdf(x)) for x in tqdm(oc.stocks['all_stocks'][:2])]
+    oc.insert_new_chain('amd')
     end_time = time.time()
     print(f'\n\nTime: {end_time - start_time}')
     
