@@ -1,15 +1,13 @@
-
-
 import sys
+# Set Path 
+
+from bin.options.optgd.db_connect import Connector
+
 import pandas as pd 
 import numpy as np 
 import yfinance as yf 
 import datetime as dt 
-
-sys.path.append('/Users/jerald/Documents/Dir/Python/Stocks')
-from bin.options.optgd.db_connect import Connector
-from models.bsm.bs2 import bs_df as new_bsdf
-from models.bsm.bsModel import bs_df
+import sqlite3 as sql
 
 
 class OptionChain(Connector):
@@ -27,6 +25,7 @@ class OptionChain(Connector):
         
         """
         super().__init__(connections)
+        self.date_db = sql.connect(connections['dates_db'])
         
     def get_option_chain(self, stock:str) -> pd.DataFrame:
         """ 
@@ -90,7 +89,61 @@ class OptionChain(Connector):
         """
         valid = cursor.execute(query).fetchone()[0]
         return bool(valid)
+    
+    def _update_dates_db(self, stock:str, new_date:str) -> None:
+        """
+        Update the dates database with the new date for the stock. 
         
+        Args:
+            stock (str): Stock Symbol
+            new_date (str): New Date
+        
+        Returns:
+            None
+        
+        """
+        cursor = self.date_db.cursor()
+        query = f"""
+        select exists(select 1 from sqlite_master where type='table' and name='{stock}')
+        """
+        valid = cursor.execute(query).fetchone()[0]
+        if valid:
+            # add the date to the database
+            query = f"""
+            insert into {stock} (stock, gatherdate) values ('{stock}','{new_date}')
+            """
+            cursor.execute(query)
+            self.date_db.commit()
+        else:
+            self._initialize_date_db(stock, new_date)
+            
+            
+    def _initialize_date_db(self, stock:str, gatherdate:str) -> None:
+        """ 
+        Initialize the date database with the dates that the data was gathered.
+        Create a table with the stock as the name and that has two columns:
+            - stock: Stock Symbol
+            - date: Date that the data was gathered.
+    
+        Args:
+            stock (str): Stock Symbol
+            gatherdate (str): Date that the data was gathered.
+        
+        returns:
+            None
+        """
+        cursor = self.date_db.cursor()
+        query = f"""
+        create table {stock} (stock text, gatherdate text)
+        """
+        cursor.execute(query)
+        self.date_db.commit()
+        query = f"""
+        insert into {stock} (stock, gatherdate) values ('{stock}', '{gatherdate}')
+        """
+        cursor.execute(query)
+        self.date_db.commit()
+    
             
     def insert_new_chain(self, stock: str) -> pd.DataFrame:
         """
@@ -108,12 +161,27 @@ class OptionChain(Connector):
         if df is None:
             return None
         else:
-            if len(df)> 0:
-                if self._check_for_stock_in_option_db(stock) == True:
-                    df.to_sql(stock, self.write_option_db, if_exists = 'append', index = False)
-                else:
+            #  If length of the new option chain > 0 and the stock is in the option database
+            if len(df)> 0 and self._check_for_stock_in_option_db(stock) == True:
+                df.to_sql(stock, self.write_option_db, if_exists = 'append', index = False)
+                self._update_dates_db(stock, df.gatherdate.max())
+            elif len(df) > 0:
+                # First check to see if there is existing data in the database, for the stock. 
+                try:
+                    oldf_q = f'select * from {stock}'
+                    cursor = self.option_db.cursor()
+                    oldf = cursor.execute(oldf_q).fetchall()
+                    oldf = pd.DataFrame(oldf, columns = [x[0] for x in cursor.description])
+                    if oldf.shape[0] > 0:
+                        # If there is data in the database, then we need to check if we are overwriting it.
+                        raise ValueError(f'{stock.upper()} You are about to overwrite {oldf.shape[0]} rows with {df.shape[0]} rows')
+                except:
+                    # If there is no data in the database, then we can write the new data.
+                    # This is the case when we add a new stock to the database. 
                     df.to_sql(stock, self.write_option_db, if_exists = 'replace', index = False)
-                self.write_option_db.commit()
+                    self._initialize_date_db(stock, df.gatherdate.max())
+            
+            self.write_option_db.commit()
             return df
         
     
@@ -124,7 +192,7 @@ if __name__ == "__main__":
     connections = get_path()
     start_time = time.time()
     oc = OptionChain(connections)
-    oc.insert_new_chain('amd')
+    oc.insert_new_chain('spy')
     end_time = time.time()
     print(f'\n\nTime: {end_time - start_time}')
     
