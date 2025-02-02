@@ -7,7 +7,7 @@ import datetime as dt
 import numpy as np 
 
 import sys
-sys.path.append('/Users/jerald/Documents/Dir/Python/stocker')
+# Set Path 
 
 from bin.price.db_connect import Prices
 from bin.options.manage_all import Manager as Optionsdb
@@ -42,6 +42,7 @@ def get_path(pre=''):
 				'vol_db': f'{pre}data/options/vol.db',
 				'change_db': f'{pre}data/options/option_change.db', 
 				'option_db': f'{pre}data/options/options.db', 
+                'dates_db': f'{pre}data/options/dates.db',
 				##### Earnings + Company Info ###########################
 				'earnings_dict': f'{pre}data/earnings/earnings.pkl',
 				'stock_names' : f'{pre}data/stocks/stock_names.db',

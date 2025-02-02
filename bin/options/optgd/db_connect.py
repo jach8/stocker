@@ -200,9 +200,6 @@ class Connector:
     
 if __name__ == "__main__":
     print("True Humility is not thinking less of yourself; It is thinking of yourself less.")
-    import sys
-    sys.path.append('/Users/jerald/Documents/Dir/Python/Stocks')
-    from bin.main import get_path 
     connections = get_path()  
     conn = Connector(connections)
     # conn._purge_inactive('spy')
