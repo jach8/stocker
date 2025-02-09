@@ -1,8 +1,6 @@
 # improved_cp.py
 
 import sys
-# Set Path 
-
 from typing import Any, Dict, List, Tuple, Optional
 import pandas as pd 
 import numpy as np 
@@ -11,6 +9,8 @@ import datetime as dt
 from tqdm import tqdm
 import sqlite3 as sql
 import logging
+
+sys.path.append('/Users/jerald/Documents/Dir/Python/Stocks')
 from bin.options.optgd.db_connect import Connector
 from models.bsm.bsModel import bs_df
 
@@ -65,10 +65,50 @@ class CP(Connector):
             d['gatherdate'] = pd.to_datetime(d['gatherdate'])
             return d
         except sql.Error as e:
-            logging.error(f"Error executing custom query '{q[:50]}...': {e}", exc_info=True)
+            logging.error(f"Error executing custom query '{q[:10]}...' Connection: {connection}... {e}", exc_info=False)
             raise
+    
+    def _check_for_stock_in_vol_db(self, stock: str) -> bool:
+        ''' Check if the stock is in the vol_db
+        
+        args:
+            stock: str: stock symbol
+        returns:
+            bool: True if the stock is in the vol_db, False otherwise
+        
+        '''
+        cursor = self.vol_db.cursor()
+        q = f"""
+        select exists(select 1 from sqlite_master where type='table' and name='{stock}')
+        """
+        valid = cursor.execute(q).fetchone()[0]
+        return bool(valid)
 
     def _cp(self, stock: str, n: int = 300) -> pd.DataFrame:
+        """
+        Calculate the daily option stats for each stock: 
+            Columns:
+                call_vol: The total volume of call options traded for that day.
+                put_vol: The total volume of put options traded for that day.
+                total_vol: The total volume of options traded for that day.
+                call_oi: The total open interest of call options for that day.
+                put_oi: The total open interest of put options for that day.
+                total_oi: The total open interest of options for that day.
+                call_prem: The total premium of call options for that day.
+                put_prem: The total premium of put options for that day.
+                total_prem: The total premium of options for that day.
+                call_iv: The average implied volatility of call options for that day.
+                put_iv: The average implied volatility of put options for that day.
+                atm_iv: The average implied volatility of options that are at the money for that day.
+                otm_iv: The average implied volatility of options that are out of the money for that day.
+                put_spread: The average spread (ask - bid) of put options for that day.
+                call_spread: The average spread (ask - bid) of call options for that day.
+            args:
+                stock: str: stock symbol
+                n: int: number of days to go back (deprecated)
+            returns:
+                pd.DataFrame: DataFrame of the option chain
+        """
         q = f'''
         SELECT 
         MAX(datetime(gatherdate)) AS gatherdate,
@@ -146,7 +186,18 @@ class CP(Connector):
             df = self._cp(stock)
             df = self._calculation(df)
             df.index = pd.to_datetime(df.index)
-            df.to_sql(f'{stock}', self.vol_db, if_exists='replace', index=False)
+            # check to see if the stock is already in the database
+            ########################################################
+            if self._check_for_stock_in_vol_db(stock):
+                logging.warning(f"{stock} already in vol_db. Appendng only new entries.")
+                existing_df = pd.read_sql(f'select * from {stock}', self.vol_db, parse_dates=['gatherdate']).sort_values('gatherdate', ascending=True)
+                # Drop any values for gatherdate that are NA
+                existing_df = existing_df.dropna(subset=['gatherdate'])
+                # If the existing_df is greater than the new df, then we need to append the new df to the existing df
+                if existing_df.shape[0] > df.shape[0]:
+                    df.to_sql(f'{stock}', self.vol_db, if_exists='append', index=False)
+                else:
+                    df.to_sql(f'{stock}', self.vol_db, if_exists='replace', index=False)
             self.vol_db.commit()
             logging.info(f"Initialized vol_db for {stock}")
             return df
@@ -213,11 +264,12 @@ class CP(Connector):
                 logging.warning(f"Not enough historical data for {stock}. Skipping update.")
                 return None
             else:
+                gdate = new_chain.gatherdate.iloc[0]
                 old_chain = self._recent(stock)
                 calls = new_chain[new_chain['type'] == 'Call']
                 puts = new_chain[new_chain['type'] == 'Put']
                 newest_cp = pd.DataFrame({
-                'gatherdate': [calls['gatherdate'].max()],
+                'gatherdate': [gdate],
                 'call_vol': [calls['volume'].sum()],
                 'put_vol': [puts['volume'].sum()],
                 'total_vol': [calls['volume'].sum() + puts['volume'].sum()],
@@ -286,11 +338,11 @@ class CP(Connector):
             GROUP BY date(gatherdate)
             ORDER BY gatherdate ASC
             '''
-            df = self.__custom_query_option_db(q, self.inactive_db, (n,))
+            df = self.__custom_query_option_db(q, self.inactive_db)
             return self._calculation(df)
         except Exception as e:
-            logging.error(f"Error getting CP from purged db for {stock}: {e}", exc_info=True)
-            raise
+            logging.error(f"Error getting CP from purged db for {stock}", exc_info=False)
+            pass
 
     def _intialized_cp(self, stock: str, n: int = 30) -> None:
         ''' Initializes the cp table '''
@@ -325,20 +377,20 @@ class CP(Connector):
 if __name__ == "__main__":
     print("(10.4) Spiritual Intelligence, Knowledge, freedom from false perception, compassion, trufhfullness, control of the senses, control of the mind, happiness, unhappiness, birth, death, fear and fearlessness, nonviolence, equanimity,  contentment, austerity, charity, fame, infamy; all these variegated diverse qualities of all living entities originate from Me alone.")
     import sys 
-    # Set Path 
+    sys.path.append('/Users/jerald/Documents/Dir/Python/Stocks')
     from bin.main import get_path
     connections = get_path()
     print()
     cp = CP(connections)
     
     try:
-        current= pd.read_sql('select * from ibm', cp.vol_db, parse_dates=['gatherdate'], index_col='gatherdate').sort_index()
+        current= pd.read_sql('select * from aapl', cp.vol_db, parse_dates=['gatherdate'], index_col='gatherdate').sort_index()
         print(current)
-        print(current.drop_duplicates())
+        print(current.dropna())
         print()
         print(current.groupby(current.index.date).sum())
         print()
-        print(cp._calculation(cp._cp('ibm')))
+        print(cp._calculation(cp._cp('aapl')))
     except Exception as e:
         logging.error(f"Error in main script: {e}", exc_info=True)
         raise e
