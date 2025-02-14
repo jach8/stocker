@@ -13,7 +13,7 @@ from pathlib import Path
 
 sys.path.append('/Users/jerald/Documents/Dir/Python/Stocks')
 from bin.price.indicators import Indicators
-from bin.price.get_data import update_stocks
+from bin.price.get_data import UpdateStocks
 
 # Custom exceptions
 class DatabaseConnectionError(Exception):
@@ -63,7 +63,7 @@ def setup_logger(name: str) -> logging.Logger:
 
 logger = setup_logger(__name__)
 
-class Prices(update_stocks):
+class Prices(UpdateStocks):
     """Class for managing stock price database connections and queries"""
     
     def __init__(self, connections: Dict[str, str], timeout: int = 30) -> None:
@@ -442,8 +442,9 @@ if __name__ == "__main__":
     try:
         m = Prices(connections)
         print('\n\n\n')
-        result = m.get_indicators('tlt', daily=False, start="2024-08-14")
-        print(result)
+        result = m.get_indicators('tlt', daily=False, start="2025-01-20")
+        for key, value in result.items():
+            print(f"{key}: {value}")
         m.close_connections()
     except Exception as e:
         logger.error(f"Main execution failed: {str(e)}")

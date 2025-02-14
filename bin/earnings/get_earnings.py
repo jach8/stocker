@@ -10,8 +10,6 @@ import numpy as np
 from pickle import load, dump
 import datetime as dt 
 import json 
-import sys
-sys.path.append('/Users/jerald/Documents/Dir/Python/stocker')
 from bin.earnings.util import *
 
 class Earnings:
