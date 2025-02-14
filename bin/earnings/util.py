@@ -15,9 +15,6 @@ import time
 import datetime as dt
 import pickle
 
-
-
-
 def get_earnings(stock):
     tick = yf.Ticker(stock)
     bs = tick.quarterly_balance_sheet.T
@@ -29,7 +26,6 @@ def get_earnings(stock):
     # lodfs = [df.reset_index().astype(str).rename(columns = {'index':"Date"}).to_dict('records') for df in lodfs]
     # return {stock: dict(zip(names, lodfs))}
     return dict(zip(names, lodfs))
-
 
 def DownloadEarnings(stocks, path):
     pbar = tqdm(stocks, desc = "Earnings Data")
