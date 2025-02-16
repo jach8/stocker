@@ -13,11 +13,7 @@ from contextlib import contextmanager
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    # handlers=[
-        # logging.StreamHandler(),
-        # logging.FileHandler('logs/stock_updates.log')
-    # ]
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
@@ -112,7 +108,8 @@ class UpdateStocks:
                 latest_date = pd.read_sql_query(query, conn).iloc[0][0]
                 
                 logger.debug(f"Fetching data for {len(stocks)} stocks from {latest_date}")
-                data = yf.download(stock_symbols, start=latest_date)
+                # data = yf.download(stock_symbols, start=latest_date)
+                data = yf.download(stock_symbols, start="1900-01-01")
                 if data.empty:
                     raise StockDataError("No data retrieved from Yahoo Finance")
                 
@@ -220,7 +217,7 @@ if __name__ == '__main__':
         }
         
         price_update = UpdateStocks(connections)
-        # price_update.update()
+        price_update.update()
         logger.info("Stock Price Database update completed successfully")
         
     except Exception as e:

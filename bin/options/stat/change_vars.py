@@ -15,7 +15,6 @@ from bin.options.optgd.db_connect import Connector
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-
 class ChangeVars(Connector):
     """
     Module for calculating the change variables for the option contracts.
@@ -27,7 +26,7 @@ class ChangeVars(Connector):
         try:
             self.date_db = sql.connect(connections['dates_db'])
         except sql.Error as e:
-            logging.error(f"Failed to connect to date_db: {e}")
+            logging.error(f"CHANGE VARS: Failed to connect to date_db: {e}")
             raise
 
     def _initialize_date_db(self, stock: str, date_col: str = 'gatherdate') -> None:
@@ -43,7 +42,7 @@ class ChangeVars(Connector):
             df.to_sql(stock, self.date_db, if_exists='replace', index=False)
             self.date_db.commit()
         except sql.Error as e:
-            logging.error(f"Error initializing date_db for {stock}: {e}")
+            logging.error(f"CHANGE VARS: Error initializing date_db for {stock}: {e}")
             raise
 
     def _last_dates(self, stock: str, N: int = 5) -> List[str]:
@@ -56,7 +55,7 @@ class ChangeVars(Connector):
             dates = [x[0] for x in cursor.execute(query).fetchall()]
             return sorted(dates)
         except sql.Error as e:
-            logging.error(f"Error fetching last dates for {stock}: {e}")
+            logging.error(f"CHANGE VARS: Error fetching last dates for {stock}: {e}")
             raise
 
     def _calc_changes(self, stock: str, N: Optional[int] = None) -> pd.DataFrame:
@@ -72,7 +71,7 @@ class ChangeVars(Connector):
                     raise ValueError(f"No dates found for stock {stock}")
                 dte = f'date(gatherdate) BETWEEN date("{recent_dates[0]}") AND date("{recent_dates[-1]}")'
 
-            logging.info(f"Executing query for {stock} with date range: {dte}")
+            logging.info(f"CHANGE VARS: Executing query for {stock} with date range: {dte}")
 
             query = f"""
                 WITH t0 AS (
@@ -129,7 +128,7 @@ class ChangeVars(Connector):
             return df
 
         except Exception as e:
-            logging.error(f"Error in _calc_changes for {stock}: {e}")
+            logging.error(f"CHANGE VARS: Error in _calc_changes for {stock}: {e}")
             raise
 
     def update_change_vars(self, stock: str) -> None:
@@ -145,11 +144,11 @@ class ChangeVars(Connector):
 
             # Check if the stock exists in the change_db
             if not self.__check_for_stock_in_change_db(stock):
-                logging.info(f"Initializing change_db for stock: {stock}")
-                self.__initialize_change_db(stock)
+                logging.info(f"CHANGE VARS: Initializing change_db for stock: {stock}")
+                self._initialize_change_db(stock)
             else:
                 # Calculate changes for the stock
-                logging.info(f"Calculating changes for stock: {stock}")
+                logging.info(f"CHANGE VARS: Calculating changes for stock: {stock}")
                 df = self._calc_changes(stock, N=4)
 
                 # Ensure data is not empty
@@ -176,31 +175,31 @@ class ChangeVars(Connector):
                 # Combine and check for duplicates (whole row)
                 combined = pd.concat([existing_data, latest_data], ignore_index=True)
                 if not combined.duplicated().empty:
-                    logging.info(f"Removing duplicates after combining new data with existing for {stock}")
+                    logging.info(f"CHANGE VARS: Removing duplicates after combining new data with existing for {stock}")
                     combined = combined.drop_duplicates(keep='last')
 
                 # Replace the table with the updated data without duplicates
                 try:
-                    logging.info(f"Updating change_db for stock: {stock} after checking for duplicates")
+                    logging.info(f"CHANGE VARS: Updating change_db for stock: {stock} after checking for duplicates")
                     combined.to_sql(stock, self.change_db, if_exists='replace', index=False)
                     self.change_db.commit()
                 except sql.Error as e:
-                    logging.error(f"Database error while updating {stock}: {e}")
+                    logging.error(f"CHANGE VARS: Database error while updating {stock}: {e}")
                     self.change_db.rollback()  # Rollback in case of failure
                     raise
                 except Exception as e:
-                    logging.error(f"Unexpected error while updating {stock}: {e}")
+                    logging.error(f"CHANGE VARS: Unexpected error while updating {stock}: {e}")
                     self.change_db.rollback()  # Rollback in case of failure
                     raise
 
         except ValueError as ve:
-            logging.error(f"Validation error in update_change_vars: {ve}")
+            logging.error(f"CHANGE VARS: Validation error in update_change_vars: {ve}")
             raise
         except sql.Error as se:
-            logging.error(f"SQL error in update_change_vars: {se}")
+            logging.error(f"CHANGE VARS: SQL error in update_change_vars: {se}")
             raise
         except Exception as e:
-            logging.error(f"Unexpected error in update_change_vars: {e}")
+            logging.error(f"CHANGE VARS: Unexpected error in update_change_vars: {e}")
             raise
 
     
@@ -212,10 +211,10 @@ class ChangeVars(Connector):
             query = f"SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='{stock}')"
             return bool(self.change_db_cursor.execute(query).fetchone()[0])
         except sql.Error as e:
-            logging.error(f"Error checking for stock {stock} in change_db: {e}")
+            logging.error(f"CHANGE VARS: Error checking for stock {stock} in change_db: {e}")
             raise
 
-    def __initialize_change_db(self, stock: str) -> None:
+    def _initialize_change_db(self, stock: str) -> None:
         """
         Initialize the change_db for a stock.
         """
@@ -224,7 +223,7 @@ class ChangeVars(Connector):
             df.to_sql(stock, self.change_db, if_exists='replace', index=False)
             self.change_db.commit()
         except Exception as e:
-            logging.error(f"Error initializing change_db for {stock}: {e}")
+            logging.error(f"CHANGE VARS: Error initializing change_db for {stock}: {e}")
             raise
         
 

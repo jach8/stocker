@@ -71,11 +71,15 @@ class Pipeline(Manager):
         
     def print_option_chain(self, stock):
         print(self.Optionsdb.parse_change_db(stock))
+        
+    def print_stock_indicators(self, stock):
+        print(self.Pricedb.get_indicators(stock))
 
 
 if __name__ == "__main__":
     print("\n12.8 Concentrate the mind upon Me, apply spiritual intelligence for Me; verily you will reside with me after this existence without a doubt.\n")
     # Initialize()
     m = Pipeline()
-    m.print_option_chain('spy')
+    # m.print_option_chain('spy')
+    m.print_stock_indicators('spy')
     # m.master_run()
