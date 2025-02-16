@@ -1,19 +1,22 @@
-from typing import Dict, List, Optional, Union, Any, Tuple
-import numpy as np 
-import pandas as pd 
-import sqlite3 as sql 
-import datetime as dt 
+from typing import Dict, List, Optional, Union, Any, Tuple, ContextManager
+import numpy as np
+import pandas as pd
+import sqlite3 as sql
+import datetime as dt
 from tqdm import tqdm
 import time
-import json 
+import json
 import logging
 from logging.handlers import RotatingFileHandler
 import sys
+from contextlib import contextmanager
+from functools import wraps
 from pathlib import Path
 
-sys.path.append('/Users/jerald/Documents/Dir/Python/Stocks')
+sys.path.append(str(Path(__file__).resolve().parents[2]))
 from bin.price.indicators import Indicators
 from bin.price.get_data import UpdateStocks
+from bin.utils.connection_pool import get_pool
 
 # Custom exceptions
 class DatabaseConnectionError(Exception):
@@ -35,18 +38,18 @@ def setup_logger(name: str) -> logging.Logger:
     logger.setLevel(logging.INFO)
     
     # File handler with rotation
-    log_file = Path("logs/price_db.log")
-    log_file.parent.mkdir(exist_ok=True)
-    file_handler = RotatingFileHandler(
-        log_file,
-        maxBytes=10*1024*1024,  # 10MB
-        backupCount=5
-    )
-    file_handler.setLevel(logging.DEBUG)
+    # log_file = Path("logs/price_db.log")
+    # log_file.parent.mkdir(exist_ok=True)
+    # file_handler = RotatingFileHandler(
+    #     log_file,
+    #     maxBytes=10*1024*1024,  # 10MB
+    #     backupCount=5
+    # )
+    # file_handler.setLevel(logging.DEBUG)
     file_formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    file_handler.setFormatter(file_formatter)
+    # file_handler.setFormatter(file_formatter)
     
     # Console handler
     console_handler = logging.StreamHandler()
@@ -56,7 +59,7 @@ def setup_logger(name: str) -> logging.Logger:
     )
     console_handler.setFormatter(console_formatter)
     
-    logger.addHandler(file_handler)
+    # logger.addHandler(file_handler)
     logger.addHandler(console_handler)
     
     return logger
@@ -66,13 +69,12 @@ logger = setup_logger(__name__)
 class Prices(UpdateStocks):
     """Class for managing stock price database connections and queries"""
     
-    def __init__(self, connections: Dict[str, str], timeout: int = 30) -> None:
+    def __init__(self, connections: Dict[str, str]) -> None:
         """
-        Initialize price database connections
+        Initialize price database manager
         
         Args:
             connections: Dictionary containing database connection paths
-            timeout: Database connection timeout in seconds
         
         Raises:
             DatabaseConnectionError: If database connection fails
@@ -80,7 +82,7 @@ class Prices(UpdateStocks):
         """
         super().__init__(connections)
         self.execution_start_time = time.time()
-        self.timeout = timeout
+        self.pool = get_pool()
         
         try:
             # Validate connection parameters
@@ -93,10 +95,17 @@ class Prices(UpdateStocks):
                 if not Path(path).exists():
                     raise FileNotFoundError(f"File not found: {path} for {key}")
             
-            # Establish database connections with timeout
-            self.names_db = self._connect_db(connections['stock_names'])
-            self.daily_db = self._connect_db(connections['daily_db'])
-            self.intraday_db = self._connect_db(connections['intraday_db'])
+            # Store database mapping
+            self.db_mapping = {
+                'stock_names': 'stock_names',
+                'daily': 'daily',
+                'intraday': 'intraday'
+            }
+            
+            # Test all database connections
+            for db_type in self.db_mapping.keys():
+                with self._get_connection(db_type) as conn:
+                    conn.execute("SELECT 1")
             
             # Load ticker data
             try:
@@ -109,32 +118,35 @@ class Prices(UpdateStocks):
             self.Indicators = Indicators
             
             logger.info(f"PriceDB Initialized successfully at {dt.datetime.now()}")
-            logger.info("Established 3 database connections")
+            logger.info("Connection pool initialized")
             
         except (sql.Error, FileNotFoundError, json.JSONDecodeError) as e:
             error_msg = f"Initialization failed: {str(e)}"
             logger.error(error_msg)
             raise DatabaseConnectionError(error_msg) from e
     
-    def _connect_db(self, db_path: str) -> sql.Connection:
+    @contextmanager
+    def _get_connection(self, db_type: str) -> ContextManager[sql.Connection]:
         """
-        Establish database connection with timeout and error handling
+        Get a database connection from the pool
         
         Args:
-            db_path: Path to SQLite database
+            db_type: Type of database ('names', 'daily', or 'intraday')
             
         Returns:
-            SQLite connection object
+            SQLite connection object from pool
             
         Raises:
             DatabaseConnectionError: If connection fails
         """
+        if db_type not in self.db_mapping:
+            raise InvalidParameterError(f"Invalid database type: {db_type}")
+            
         try:
-            connection = sql.connect(db_path, timeout=self.timeout)
-            connection.execute("SELECT 1")  # Test connection
-            return connection
-        except sql.Error as e:
-            error_msg = f"Failed to connect to database {db_path}: {str(e)}"
+            with self.pool.get_connection(self.db_mapping[db_type]) as conn:
+                yield conn
+        except (sql.Error, KeyError) as e:
+            error_msg = f"Failed to get {db_type} database connection: {str(e)}"
             logger.error(error_msg)
             raise DatabaseConnectionError(error_msg) from e
             
@@ -162,11 +174,12 @@ class Prices(UpdateStocks):
             QueryExecutionError: If query execution fails
         """
         try:
-            cursor = self.daily_db.cursor()
-            cursor.execute(q)
-            results = cursor.fetchall()
-            columns = [desc[0] for desc in cursor.description]
-            return pd.DataFrame(results, columns=columns)
+            with self._get_connection('daily') as conn:
+                cursor = conn.cursor()
+                cursor.execute(q)
+                results = cursor.fetchall()
+                columns = [desc[0] for desc in cursor.description]
+                return pd.DataFrame(results, columns=columns)
         except sql.Error as e:
             error_msg = f"Query execution failed: {str(e)}\nQuery: {q}"
             logger.error(error_msg)
@@ -176,18 +189,19 @@ class Prices(UpdateStocks):
         """Get 1-minute close prices for a stock"""
         try:
             q = f'''select datetime(date) as date, close from {stock} order by datetime(date) asc'''
-            cursor = self.intraday_db.cursor()
-            cursor.execute(q)
-            df = pd.DataFrame(cursor.fetchall(), columns=['date', stock])
-            df.date = pd.to_datetime(df.date)
-            df = df.set_index('date')
-            if agg != '1min':
-                df = df.resample(agg).last()
-            return df
+            with self._get_connection('intraday') as conn:
+                cursor = conn.cursor()
+                cursor.execute(q)
+                df = pd.DataFrame(cursor.fetchall(), columns=['date', stock])
+                df.date = pd.to_datetime(df.date)
+                df = df.set_index('date')
+                if agg != '1min':
+                    df = df.resample(agg).last()
+                return df
         except (sql.Error, pd.errors.EmptyDataError) as e:
             logger.error(f"Failed to get 1-minute close for {stock}: {str(e)}")
             raise
-    
+
     def get_intraday_close(self, stocks: List[str], agg: str = '1min') -> pd.DataFrame:
         """
         Get intraday closing prices for multiple stocks
@@ -217,8 +231,9 @@ class Prices(UpdateStocks):
         """Get daily closing prices for a stock"""
         try:
             q = f'''select date(date) as date, close as "Close" from {stock} order by date(date) asc'''
-            df = pd.read_sql_query(q, self.daily_db, parse_dates=['date'], index_col='date')
-            return df.rename(columns={'Close': stock})
+            with self._get_connection('daily') as conn:
+                df = pd.read_sql_query(q, conn, parse_dates=['date'], index_col='date')
+                return df.rename(columns={'Close': stock})
         except (sql.Error, pd.errors.DatabaseError) as e:
             logger.error(f"Failed to get close prices for {stock}: {str(e)}")
             raise
@@ -247,60 +262,42 @@ class Prices(UpdateStocks):
         try:
             if daily:
                 q = f'''select date(date) as "Date", open, high, low, close, volume from {stock} order by date(date) asc'''
-                cursor = self.daily_db.cursor()
+                db_type = 'daily'
             else:
                 if start is None:
                     q = f'''select datetime(date) as "Date", open, high, low, close, volume from {stock} order by datetime(date) asc'''
                 else:
                     q = f'''
-                    select 
-                        datetime(date) as "Date", 
-                        open, 
-                        high, 
-                        low, 
-                        close, 
-                        volume 
-                    from {stock} 
-                    where 
-                        date(date) >= date("{start}") 
+                    select
+                        datetime(date) as "Date",
+                        open,
+                        high,
+                        low,
+                        close,
+                        volume
+                    from {stock}
+                    where
+                        date(date) >= date("{start}")
                     order by datetime(date) asc'''
-                cursor = self.intraday_db.cursor()
+                db_type = 'intraday'
                 
-            cursor.execute(q)
-            df = pd.DataFrame(cursor.fetchall(), columns=[i[0] for i in cursor.description])
-            df.Date = pd.to_datetime(df.Date)
-            df.index = df.Date
-            
-            if start is not None:
-                df = df[df.index >= start]
-            if end is not None:
-                df = df[df.index <= end]
+            with self._get_connection(db_type) as conn:
+                cursor = conn.cursor()
+                cursor.execute(q)
+                df = pd.DataFrame(cursor.fetchall(), columns=[i[0] for i in cursor.description])
+                df.Date = pd.to_datetime(df.Date)
+                df.index = df.Date
                 
-            return df
-            
+                if start is not None:
+                    df = df[df.index >= start]
+                if end is not None:
+                    df = df[df.index <= end]
+                    
+                return df
+                
         except Exception as e:
             logger.error(f"Failed to get OHLC data for {stock}: {str(e)}")
             raise
-
-    def _exclude_duplicate_ticks(self, group: str) -> List[str]:
-        """
-        Exclude duplicate tickers from a group
-        
-        Args:
-            group: Ticker group name
-            
-        Returns:
-            List of unique tickers
-        """
-        try:
-            if group == 'etf':
-                g = list(set(self.stocks['etf']) - set(self.stocks['market']) - set(self.stocks['bonds']))
-            else:
-                g = self.stocks[group]
-            return g
-        except KeyError as e:
-            logger.error(f"Invalid group name: {group}")
-            raise InvalidParameterError(f"Invalid group name: {group}") from e
 
     def get_aggregates(self, df: pd.DataFrame) -> Dict[str, pd.DataFrame]:
         """
@@ -362,10 +359,10 @@ class Prices(UpdateStocks):
         """Get technical indicators for a stock"""
         try:
             if kwargs is None:
-                kwargs = dict(fast=6, medium=10, slow=28, m=2)
+                kwargs = dict(fast=2, medium=3, slow=5, m=2)
                 
             if not daily:
-                daily_df = self.ohlc(stock, True, start, end)    
+                daily_df = self.ohlc(stock, True,)    
                 G = Indicators(daily_df)
                 daily_smas = G._get_moving_averages(fast=kwargs['fast'], medium=kwargs['medium'], slow=kwargs['slow'])
                 dsma = pd.DataFrame(daily_smas, index=daily_df.index, columns=list(daily_smas.keys()))
@@ -392,6 +389,7 @@ class Prices(UpdateStocks):
                     df = self._get1minCl(stock, agg=time_frame)[stock]
                     i = Indicators(df)
                     out = i._get_moving_averages()
+                    out = pd.DataFrame(out, index=df.index, columns=list(out.keys()))
                 else:
                     df = self.ohlc(stock, daily, start, end)
                     i = Indicators(df)
@@ -416,17 +414,16 @@ class Prices(UpdateStocks):
             raise
 
     def close_connections(self) -> None:
-        """Close all database connections"""
+        """Close all pooled connections"""
         try:
-            for conn in [self.names_db, self.daily_db, self.intraday_db]:
-                conn.close()
+            self.pool.close_all()
             
             end_time = time.time()
             runtime_min = (end_time - self.execution_start_time) / 60
-            logger.info(f"Connections closed successfully. Total runtime: {runtime_min:.2f} min")
+            logger.info(f"All connections returned to pool. Total runtime: {runtime_min:.2f} min")
             
         except Exception as e:
-            logger.error(f"Error closing connections: {str(e)}")
+            logger.error(f"Error closing pool connections: {str(e)}")
             raise
 
 if __name__ == "__main__":
@@ -442,9 +439,8 @@ if __name__ == "__main__":
     try:
         m = Prices(connections)
         print('\n\n\n')
-        result = m.get_indicators('tlt', daily=False, start="2025-01-20")
-        for key, value in result.items():
-            print(f"{key}: {value}")
+        result = m.get_indicators('spy', daily=False, start="2025-01-20")
+        print(result)
         m.close_connections()
     except Exception as e:
         logger.error(f"Main execution failed: {str(e)}")

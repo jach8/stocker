@@ -87,7 +87,6 @@ class Connector:
         try:
             # Add stocks, Keys: ['all_stocks', 'bonds','etf', 'equities', 'market', 'mag8']
             self.stocks = json.load(open(connections['ticker_path'], 'r'))     
-            self.all_stocks = self.stocks['market'] + self.stocks['bonds'] + self.stocks['mag8'] + self.stocks['etf'] + self.stocks['equities']
             
             # Add Connections 
             self.path_dict = connections
@@ -113,7 +112,8 @@ class Connector:
             print("Options db Connected: {}".format(dt.datetime.now()))
         
         except Exception as e:
-            print("Connection Failed: ", e,)       
+            print("Connection Failed: ", e,)  
+            raise Exception("Connection Failed: ", e)     
         
     def __check_inactive_db_for_stock(self, stock: str) -> bool: 
         """ 

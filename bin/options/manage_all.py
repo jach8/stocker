@@ -14,6 +14,7 @@ import datetime as dt
 from tqdm import tqdm
 import time 
 import sqlite3 as sql
+import re
 
 from bin.options.stat.em import Exp
 from bin.options.optgd.option_chain import OptionChain
@@ -27,7 +28,6 @@ class Manager(OptionChain, Stats):
         super().__init__(connections)
         self.connections = connections
         #self.stock_list = ['spy', 'qqq' , 'iwm']
-        
         
     def update_options(self):
         for stock in tqdm(self.stocks['all_stocks']):
@@ -54,7 +54,6 @@ class Manager(OptionChain, Stats):
         print('Imported')  
         print(self.__dict__) 
         
-        
     def _join_purged_data(self, stock):
         q = f'''
         select 
@@ -66,8 +65,17 @@ class Manager(OptionChain, Stats):
         cursor = self.inactive_db.cursor()
         cursor.execute(q)
         df = pd.DataFrame(cursor.fetchall(), columns = [desc[0] for desc in cursor.description])
+        
+    def describe_option(self, y):
+        ''' Given an option contract symbol, using regular expressions to return the stock, expiration date, contract type, and strike price. '''
+        valid = re.compile(r'(?P<stock>[A-Z]+)(?P<expiry>[0-9]+)(?P<type>[C|P])(?P<strike>[0-9]+)')
+        stock = valid.match(y).group('stock')
+        expiration = dt.datetime.strptime(valid.match(y).group('expiry'), "%y%m%d")
+        conttype = valid.match(y).group('type')
+        strike = float(valid.match(y).group('strike')) / 1000
+        return ("$"+stock, conttype, float(strike), expiration.strftime('%m/%d/%y'))
 
-    def _parse_change_db(self, stock, today = True, bsdf = True):
+    def parse_change_db(self, stock, today = True, bsdf = True):
         stock = stock.lower()
         if today: 
             q = f'''select * from {stock} where date(gatherdate) = (select max(date(gatherdate)) from {stock}) '''
@@ -93,9 +101,8 @@ class Manager(OptionChain, Stats):
             return bs_df(df)
         else: 
             return df 
-    
-        
-    def _contract_lookup(self, stock, args):
+
+    def contract_lookup(self, stock, args):
         if 'contractsymbol' in args:
             q = f'''select * from "{stock}" where contractsymbol = "{args['contractsymbol']}"'''
         if 'strike' in args:
@@ -115,48 +122,7 @@ class Manager(OptionChain, Stats):
             return df
         else:
             return self.parse_change_db(df)
-    
-    def parse_change_db(self, df):
-        """ Parse the output from the change_db or any dataframe where contractsymbol is in the dataframe
 
-            args: 
-                -df : pd.DataFrame containing contractsymbol in the columns 
-        
-        """
-        out_desc = {x: self.describe_option(x) for x in df.contractsymbol.to_list()}
-        out_desc_df = pd.DataFrame(out_desc).T.reset_index()
-        out_desc_df.columns = ['contractsymbol', 'stock', 'type', 'strike', 'expiry']
-        out_desc_df['stock'] = out_desc_df.stock.apply(lambda x: x.replace('$', ''))
-        out_df = out_desc_df.merge(df, on = 'contractsymbol')
-        out_df.strike = out_df.strike.astype(float)
-        out_df.expiry = pd.to_datetime(out_df.expiry)
-        return out_df
-    
-    
-    def pcdb(self, df):
-        """ Parse the output from the change_db or any dataframe where contractsymbol is in the dataframe
-
-            args: 
-                -df : pd.DataFrame containing contractsymbol in the columns 
-        
-        """
-        out_desc = {x: self.describe_option(x) for x in df.contractsymbol.to_list()}
-        out_desc_df = pd.DataFrame(out_desc).T.reset_index()
-        out_desc_df.columns = ['contractsymbol', 'stock', 'type', 'strike', 'expiry']
-        out_desc_df['stock'] = out_desc_df.stock.apply(lambda x: x.replace('$', ''))
-        out_desc_df.expiry = pd.to_datetime(out_desc_df.expiry)
-        out_desc_df.type = out_desc_df.type.map({'C': 'Call', 'P': 'Put'})
-        out = out_desc_df.merge(df.reset_index(drop = True), on = 'contractsymbol')
-        out.strike = out.strike.astype(float)
-        return out
-    
-        
-        
-        
-
-            
-            
-            
 if __name__ == "__main__":
     print("You Cant go back and change the begining, but you can start right now and change the ending.")
     
@@ -182,7 +148,7 @@ if __name__ == "__main__":
     oc = Manager(connections)
     
     # print(oc.option_custom_q('select * from aapl', db = 'change_db'))
-    oc._init_em_tables()
+    # oc._init_em_tables()
     
     
     

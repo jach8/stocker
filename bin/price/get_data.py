@@ -14,10 +14,10 @@ from contextlib import contextmanager
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('logs/stock_updates.log')
-    ]
+    # handlers=[
+        # logging.StreamHandler(),
+        # logging.FileHandler('logs/stock_updates.log')
+    # ]
 )
 logger = logging.getLogger(__name__)
 
@@ -220,7 +220,7 @@ if __name__ == '__main__':
         }
         
         price_update = UpdateStocks(connections)
-        price_update.update()
+        # price_update.update()
         logger.info("Stock Price Database update completed successfully")
         
     except Exception as e:

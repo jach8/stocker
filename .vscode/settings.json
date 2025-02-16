@@ -1,0 +1,16 @@
+{
+    "folder-color.pathColors": [
+        {
+            "folderPath": "stocker/bin/",
+            "color": "foldercolorizer.color_00cc66"
+        },
+        {
+            "folderPath": "stocker/models/",
+            "color": "foldercolorizer.color_cccc00"
+        },
+        {
+            "folderPath": "stocker/notebooks/",
+            "color": "foldercolorizer.color_cc6600"
+        }
+    ]
+}

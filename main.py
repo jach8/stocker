@@ -67,10 +67,15 @@ class Pipeline(Manager):
         # Update the options data 
         self.update_options() 
         self.workflow()
+        
+        
+    def print_option_chain(self, stock):
+        print(self.Optionsdb.parse_change_db(stock))
 
 
 if __name__ == "__main__":
     print("\n12.8 Concentrate the mind upon Me, apply spiritual intelligence for Me; verily you will reside with me after this existence without a doubt.\n")
     # Initialize()
     m = Pipeline()
-    m.master_run()
+    m.print_option_chain('spy')
+    # m.master_run()
