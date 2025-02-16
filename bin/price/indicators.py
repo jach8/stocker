@@ -7,7 +7,7 @@ from pandas import Series, DataFrame
 
 # Configure logging
 logging.basicConfig(
-    filename='logs/indicators.log',
+    # filename='logs/indicators.log',
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )

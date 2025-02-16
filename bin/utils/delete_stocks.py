@@ -3,8 +3,6 @@ import datetime as dt
 import sqlite3 as sql 
 import json
 
-
-
 def delete_stock(conn, stock = None):
     stock_df = pd.read_sql(''' select * from stocks ''', conn)
     out = stock_df[stock_df.stocks != stock]

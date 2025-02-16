@@ -8,7 +8,8 @@ import numpy as np
 
 import sys
 # Set Path 
-
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parents[1]))
 from bin.price.db_connect import Prices
 from bin.options.manage_all import Manager as Optionsdb
 from bin.earnings.get_earnings import Earnings 
@@ -25,7 +26,7 @@ def init():
     
     
 def get_path(pre=''):
-	""" Must be in the '/Users/jerald/Documents/Dir/Python/stocker' directory to run this function. """
+	""" Must be in the directory to run this function. """
 	connections = {
 				##### Bonds Data ###########################
 				'bonds_db': f'{pre}data/bonds/bonds.db', 
@@ -95,6 +96,8 @@ class Manager:
 
 	
 if __name__ == "__main__":
-	Initialize()
+    m = Manager()
+    print(m.Optionsdb.parse_change_db('spy'))
+    m.close_connection()
  
  

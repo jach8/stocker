@@ -1,10 +1,8 @@
+matplotlib
+mplfinance
 numpy
 pandas
+python-dotenv
+scipy
 tqdm
 yfinance
-sqlite3
-json
-re
-matplotlib
-scipy
-mplfinance
