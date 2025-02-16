@@ -1,5 +1,4 @@
-import sys
-# Set Path 
+
 
 from typing import List, Dict, Optional
 import pandas as pd
@@ -9,6 +8,12 @@ import datetime as dt
 from tqdm import tqdm
 import time 
 import logging
+
+
+import sys
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parents[3])) 
+
 from bin.options.stat.em import Exp
 from bin.options.stat.change_vars import ChangeVars
 from bin.options.stat.cp import CP
@@ -101,7 +106,7 @@ class Stats(Exp, ChangeVars, CP):
         try:
             old_df = self.get_cp_from_purged_db(stock, n=n)
         except Exception as e:
-            logger.warning(f"No old CP data for {stock}: {e}")
+            logger.warning(f"manage_stats.cp_query: No old CP data for {stock}: {e}")
             old_df = pd.DataFrame()
         
         current_df = self._calculation(self._cp(stock, n=n))
@@ -147,7 +152,7 @@ class Stats(Exp, ChangeVars, CP):
         df = df.round(4)
 
         # Calculate Moving Averages
-        n_day = 20
+        n_day = 3
         sma_vol = df['total_vol'].rolling(n_day).mean()
         std_vol = df['total_vol'].rolling(n_day).std()
         sma_oi = df['total_oi'].rolling(n_day).mean()
@@ -195,10 +200,11 @@ class Stats(Exp, ChangeVars, CP):
                 df = pd.read_sql(f'''SELECT * FROM {stock} ORDER BY datetime(gatherdate) ASC''', self.vol_db, parse_dates=['gatherdate'])
                 df['gatherdate'] = pd.to_datetime(df['gatherdate'])
                 df.insert(0, 'stock', stock)
-                df.insert(1, 'group', df['stock'].map(sg)) 
+                # df.insert(1, 'group', df['stock'].map(sg)) 
+                print(df)
                 df = self._mdf(df)
                 if df.empty:
-                    logger.warning(f'No data for {stock}')
+                    logger.warning(f'manage_stats._all_cp(): No data for {stock}')
                     continue
                 out.append(df.tail(1))
             except Exception as e:
@@ -210,7 +216,6 @@ class Stats(Exp, ChangeVars, CP):
 if __name__ == "__main__":
     print("Control what you can Control.")
     from bin.main import get_path
-    # Set Path 
     connections = get_path()
     oc = Stats(connections)
     print(oc._all_cp())

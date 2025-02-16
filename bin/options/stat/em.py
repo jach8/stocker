@@ -64,7 +64,7 @@ class Exp(Connector):
         '''
         df = pd.read_sql_query(query, self.option_db, parse_dates=['expiry', 'gatherdate'])
         if df.empty:
-            logger.error(f"No data found for stock: {stock}")
+            logger.error(f"EXP. MOVES: No data found for stock: {stock}")
             raise ValueError(f"No data available for stock {stock}")
         return df
 
@@ -101,7 +101,7 @@ class Exp(Connector):
             df = self._get_em_data(stock)
         
         if len(df) < 2:
-            logger.warning(f"Insufficient data for {stock} to calculate expected move.")
+            logger.warning(f"EXP MOVES: Insufficient data for {stock} to calculate expected move.")
             return None
         
         price_point = 'lastprice'
@@ -166,14 +166,14 @@ class Exp(Connector):
                         out.append(d)
                         out_ext.append(j)
             except Exception as e:
-                logger.error(f"Error processing stock {stock}: {e}")
+                logger.error(f"EXP. MOVES: Error processing stock {stock}: {e}")
 
         out_df = pd.concat(out).reset_index(drop=True)
         out_df = self.__edit_expected_moves_table(out_df)
         out_df.to_sql('expected_moves', self.stats_db, if_exists='replace', index=False)
         out_ext_df = pd.concat(out_ext).reset_index(drop=True)
         out_ext_df.to_sql('exp_ext', self.stats_db, if_exists='replace', index=False)
-        logger.info("Expected moves tables initialized successfully.")
+        logger.info("EXPECTED MOVES: tables initialized successfully.")
 
     def gg(self) -> None:
         """
@@ -182,10 +182,10 @@ class Exp(Connector):
         expected_moves: Expected move data for all stocks, up to the next Friday
         
         """
-        logger.info('Querying exp_ext table')
+        logger.info('EXPECTED MOVES: Querying exp_ext table')
         g = pd.read_sql('SELECT * FROM exp_ext', self.stats_db, parse_dates=['expiry'])
         print(g)
-        logger.info('Querying expected_moves table')
+        logger.info('EXPECTED MOVES: Querying expected_moves table')
         gg = pd.read_sql('SELECT * FROM expected_moves', self.stats_db, parse_dates=['expiry'])
         print(gg)
 

@@ -31,29 +31,6 @@ from bin.utils.add_stocks import add_stock
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-def setup_logger():
-    """Configure logging with file and console handlers"""
-    # Console handler
-    console_handler = logging.StreamHandler()
-    console_handler.setLevel(logging.INFO)
-    formatter = logging.Formatter('%(levelname)s: %(message)s')
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
-    
-    # File handler
-    log_dir = Path('logs')
-    log_dir.mkdir(exist_ok=True)
-    file_handler = logging.handlers.RotatingFileHandler(
-        'logs/pipeline.log',
-        maxBytes=10*1024*1024,
-        backupCount=5
-    )
-    file_handler.setLevel(logging.DEBUG)
-    file_formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    )
-    file_handler.setFormatter(file_formatter)
-    logger.addHandler(file_handler)
 
 class Manager:
     """Base manager class with connection pooling"""
@@ -204,10 +181,10 @@ class Pipeline(Manager):
             logger.info("Starting master run")
             
             # Update stock prices
-            self.update_stock_prices()
+            # self.update_stock_prices()
             
             # Update options data
-            self.update_options()
+            # self.update_options()
             
             # Run workflow
             self.workflow()
@@ -258,20 +235,18 @@ def get_path(pre: str = '') -> Dict[str, str]:
         raise
 
 if __name__ == "__main__":
-    try:
-        # Set up logging
-        setup_logger()
-        logger.info("\n12.8 Concentrate the mind upon Me, apply spiritual intelligence for Me; "
+    print("\n12.8 Concentrate the mind upon Me, apply spiritual intelligence for Me; "
                    "verily you will reside with me after this existence without a doubt.\n")
+    try:
         
         # Initialize the pipeline
         pipeline = Pipeline()
         
         # Run the pipeline
-        # pipeline.master_run()
+        pipeline.master_run()
         
         # Print an option table
-        df = pipeline.Optionsdb.get_option_chain('aapl')
+        df = pipeline.Optionsdb.get_option_chain('spy')
         print(df)
         
     except Exception as e:

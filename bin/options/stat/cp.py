@@ -17,6 +17,7 @@ from models.bsm.bsModel import bs_df
 # Configure logging
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
+
 class CP(Connector):
     """
     Engineering Features for each stock in the database. Using the option chain, the following script aims to extract critical information about the stock for that date. 
@@ -46,7 +47,7 @@ class CP(Connector):
         try:
             self.dates_db = sql.connect(connections['dates_db'])
         except sql.Error as e:
-            logging.error(f"Failed to connect to dates_db: {e}", exc_info=True)
+            logging.error(f"DAILY OPTION STATS: Failed to connect to dates_db: {e}", exc_info=True)
             raise
 
     def __custom_query_option_db(self, q: str, connection: sql.Connection) -> pd.DataFrame:
@@ -65,7 +66,7 @@ class CP(Connector):
             d['gatherdate'] = pd.to_datetime(d['gatherdate'])
             return d
         except sql.Error as e:
-            logging.error(f"Error executing custom query '{q[:10]}...' Connection: {connection}... {e}", exc_info=False)
+            logging.error(f"DAILY OPTION STATS: Error executing custom query '{q[:10]}...' Connection: {connection}... {e}", exc_info=False)
             raise
     
     def _check_for_stock_in_vol_db(self, stock: str) -> bool:
@@ -132,10 +133,10 @@ class CP(Connector):
         ORDER BY gatherdate ASC
         '''
         try:
-            logging.info(f"Running _cp for {stock.upper()}")
+            logging.info(f"DAILY OPTION STATS: Running _cp for {stock.upper()}")
             return self.__custom_query_option_db(q, self.option_db)
         except Exception as e:
-            logging.error(f"Error in _cp for {stock}: {e}", exc_info=True)
+            logging.error(f"DAILY OPTION STATS: Error in _cp for {stock}: {e}", exc_info=True)
             raise
 
     def _calculation(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -170,7 +171,7 @@ class CP(Connector):
                     df[col] = df[col].astype(int)
             return df
         except Exception as e:
-            logging.error(f"Error in _calculation: {e}", exc_info=True)
+            logging.error(f"DAILY OPTION STATS: Error in _calculation: {e}", exc_info=True)
             raise
 
     def _initialize_vol_db(self, stock: str) -> pd.DataFrame:
@@ -199,10 +200,10 @@ class CP(Connector):
                 else:
                     df.to_sql(f'{stock}', self.vol_db, if_exists='replace', index=False)
             self.vol_db.commit()
-            logging.info(f"Initialized vol_db for {stock}")
+            logging.info(f"DAILY OPTION STATS: Initialized vol_db for {stock}")
             return df
         except Exception as e:
-            logging.error(f"Error initializing vol_db for {stock}: {e}", exc_info=True)
+            logging.error(f"DAILY OPTION STATS: Error initializing vol_db for {stock}: {e}", exc_info=True)
             self.vol_db.rollback()
             raise
 
@@ -231,10 +232,10 @@ class CP(Connector):
         '''
         try:
             df = pd.read_sql_query(q, self.vol_db, parse_dates=['gatherdate']).sort_values('gatherdate', ascending=True)
-            logging.info(f"Fetched recent data for {stock}")
+            logging.info(f"DAILY OPTION STATS: Fetched recent data for {stock}")
             return df 
         except sql.Error as e:
-            logging.error(f"Error fetching recent data for {stock}: {e}", exc_info=True)
+            logging.error(f"DAILY OPTION STATS: Error fetching recent data for {stock}: {e}", exc_info=True)
             raise
 
     def _last_dates(self, stock: str, N: int = 5) -> np.ndarray:
@@ -251,7 +252,7 @@ class CP(Connector):
             df = pd.DataFrame(cursor.fetchall(), columns=['gatherdate'])
             return df['gatherdate'].unique()
         except sql.Error as e:
-            logging.error(f"Error fetching last dates for {stock}: {e}", exc_info=True)
+            logging.error(f"DAILY OPTION STATS: Error fetching last dates for {stock}: {e}", exc_info=True)
             raise
 
     def update_cp(self, stock: str, new_chain: pd.DataFrame) -> Optional[pd.DataFrame]:
@@ -288,10 +289,10 @@ class CP(Connector):
                 add_on = self._calculation(ready).tail(1).reset_index(drop=True)
                 add_on.to_sql(f'{stock}', self.vol_db, if_exists='append', index=False)
                 self.vol_db.commit()
-                logging.info(f"Updated {stock} in vol_db")
+                logging.info(f"DAILY OPTION STATS: Updated {stock} in vol_db")
                 return pd.read_sql(f'select * from {stock}', self.vol_db)
         except Exception as e:
-            logging.error(f"Error updating {stock}: {e}", exc_info=True)
+            logging.error(f"DAILY OPTION STATS: Error updating {stock}: {e}", exc_info=True)
             self.vol_db.rollback()
             raise
 
@@ -310,7 +311,7 @@ class CP(Connector):
             df0 = pd.DataFrame(cursor.fetchall(), columns=['gatherdate', 'maxdate'])
             return ','.join([f"'{x}'" for x in df0['maxdate']])
         except sql.Error as e:
-            logging.error(f"Error fetching max dates for {stock}: {e}", exc_info=True)
+            logging.error(f"DAILY OPTION STATS: Error fetching max dates for {stock}: {e}", exc_info=True)
             raise
 
     def get_cp_from_purged_db(self, stock: str, n: int = 300) -> pd.DataFrame:
@@ -341,13 +342,14 @@ class CP(Connector):
             df = self.__custom_query_option_db(q, self.inactive_db)
             return self._calculation(df)
         except Exception as e:
-            logging.error(f"Error getting CP from purged db for {stock}", exc_info=False)
+            logging.error(f"DAILY OPTION STATS: Error getting CP from purged db for {stock}", exc_info=False)
             pass
 
     def _intialized_cp(self, stock: str, n: int = 30) -> None:
         ''' Initializes the cp table '''
         try:
-            old_df = self.get_cp_from_purged_db(stock, n=n)
+            # old_df = self.get_cp_from_purged_db(stock, n=n)
+            old_df = pd.DataFrame()
         except:
             old_df = pd.DataFrame()
         try:
@@ -355,9 +357,9 @@ class CP(Connector):
             new_df = pd.concat([old_df, current_df], axis=0).reset_index().drop_duplicates()
             new_df.to_sql(f'{stock}', self.vol_db, if_exists='append', index=False)
             self.vol_db.commit()
-            logging.info(f"Initialized CP for {stock}")
+            logging.info(f"DAILY OPTION STATS: Initialized CP for {stock}")
         except Exception as e:
-            logging.error(f"Error initializing CP for {stock}: {e}", exc_info=True)
+            logging.error(f"DAILY OPTION STATS: Error initializing CP for {stock}: {e}", exc_info=True)
             self.vol_db.rollback()
             raise
 
@@ -371,7 +373,7 @@ class CP(Connector):
             new_df = pd.concat([old_df, current_df], axis=0).reset_index()
             return new_df
         except Exception as e:
-            logging.error(f"Error in CP query for {stock}: {e}", exc_info=True)
+            logging.error(f"DAILY OPTION STATS: Error in CP query for {stock}: {e}", exc_info=True)
             raise
 
 if __name__ == "__main__":
@@ -392,7 +394,7 @@ if __name__ == "__main__":
         print()
         print(cp._calculation(cp._cp('aapl')))
     except Exception as e:
-        logging.error(f"Error in main script: {e}", exc_info=True)
+        logging.error(f"DAILY OPTION STATS: Error in main script: {e}", exc_info=True)
         raise e
     finally:
         cp.close_connections()
