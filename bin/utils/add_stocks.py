@@ -55,7 +55,8 @@ def add_stock(conn, path, stock):
     
 if __name__ == "__main__":
     import sys
-    sys.path.append('/Users/jerald/Documents/Dir/Python/stocker')
+    from pathlib import Path    
+    sys.path.append(str(Path(__file__).resolve().parents[2]))
     from bin.main import get_path 
     
     conn = sql.connect(get_path()['stock_names'])

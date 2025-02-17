@@ -11,6 +11,18 @@
         {
             "folderPath": "stocker/notebooks/",
             "color": "foldercolorizer.color_cc6600"
+        },
+        {
+            "folderPath": "stocker/bin/options/",
+            "color": "foldercolorizer.color_ff66ff"
+        },
+        {
+            "folderPath": "stocker/bin/price/",
+            "color": "foldercolorizer.color_ff99ff"
+        },
+        {
+            "folderPath": "stocker/bin/utils/",
+            "color": "foldercolorizer.color_ffff33"
         }
     ]
 }

@@ -12,7 +12,8 @@ import numpy as np
 import sqlite3 as sql
 import datetime as dt
 import sys
-sys.path.append('/Users/jerald/Documents/Dir/Python/stocker')
+from pathlib import Path    
+sys.path.append(str(Path(__file__).resolve().parents[2]))
 from bin.options.optgd.db_connect import Connector
 
 class Tracker(Connector):

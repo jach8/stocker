@@ -5,7 +5,8 @@ import datetime as dt
 import matplotlib.pyplot as plt 
 import json 
 import sys
-sys.path.append('/Users/jerald/Documents/Dir/Python/stocker')
+from pathlib import Path    
+sys.path.append(str(Path(__file__).resolve().parents[3]))
 
 class perf:
     def __init__(self, connections):
@@ -84,7 +85,8 @@ class perf:
 if __name__ == "__main__":
     print("\n(22) O Arjuna, those pleasures arising from the senses contacting sense objects are indeed the source of misery only; subject to a beginning and end; therefore the spiritually intelligent never take delight in them.\n")
     import sys
-    sys.path.append('/Users/jerald/Documents/Dir/Python/stocker')
+    from pathlib import Path    
+    sys.path.append(str(Path(__file__).resolve().parents[3]))
     from bin.main import get_path
     connections = get_path()
     
