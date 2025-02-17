@@ -11,8 +11,8 @@ from logging.handlers import RotatingFileHandler
 import sys
 from contextlib import contextmanager
 from functools import wraps
-from pathlib import Path
 
+from pathlib import Path
 sys.path.append(str(Path(__file__).resolve().parents[2]))
 from bin.price.indicators import Indicators
 from bin.price.get_data import UpdateStocks

@@ -20,7 +20,7 @@ from bin.utils.connection_pool import get_pool, ConnectionPool
 from bin.price.db_connect import Prices
 from bin.options.manage_all import Manager as Optionsdb
 from bin.earnings.get_earnings import Earnings 
-from bin.price.perf.report import perf as performance
+from bin.price.report import perf as performance
 from bin.alerts.options_alerts import Notifications
 from bin.signals.plays.ling import Scanner
 from bin.signals.plays.dxp import dxp 

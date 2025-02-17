@@ -12,9 +12,9 @@ import yfinance as yf
 import sqlite3 as sql 
 import json
 import re
-
 import sys
-sys.path.append('/Users/jerald/Documents/Dir/Python/Stocks')
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parents[3]))
 
 
 class dxp:
@@ -222,9 +222,7 @@ class dxp:
         gbdf = df.copy().groupby(['expiry','type']).agg({'volume':'sum', 'openinterest':'sum', 'cash':'sum'})
         expirations = sorted(list(df.expiry.unique()))
         exp = expirations[0]
-        
-    
-    
+
     def scan(self, group = None):
         if group == None:
             group = self.stocks['all_stocks']
@@ -237,5 +235,7 @@ class dxp:
         
 if __name__ == "__main__":
     from tqdm import tqdm 
-    p = Play()
-    print(p.run('iei'))
+    import json 
+    connections = json.load(open('setup/connections.json', 'r'))
+    p = dxp(connections=connections)
+    print(p.run('bbai'))

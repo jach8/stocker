@@ -220,7 +220,8 @@ if __name__ == "__main__":
     
     import sqlite3 as sql 
     import sys
-    sys.path.append('/Users/jerald/Documents/Dir/Python/stocker')
+    from pathlib import Path    
+    sys.path.append(str(Path(__file__).resolve().parents[3]))
     from bin.options.manage_all import Manager 
     
     

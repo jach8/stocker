@@ -6,7 +6,10 @@ Manager for the options data pipeline.
 
 """
 import sys
-sys.path.append('/Users/jerald/Documents/Dir/Python/stocker')
+
+from pathlib import Path    
+sys.path.append(str(Path(__file__).resolve().parents[2]))
+
 import pandas as pd 
 import numpy as np 
 # import yfinance as yf 
@@ -141,7 +144,8 @@ if __name__ == "__main__":
             }
 
     import sys
-    sys.path.append('/Users/jerald/Documents/Dir/Python/stocker')
+    from pathlib import Path    
+    sys.path.append(str(Path(__file__).resolve().parents[3]))
     from bin.main import get_path
     
     connections = get_path()
@@ -149,6 +153,8 @@ if __name__ == "__main__":
     
     # print(oc.option_custom_q('select * from aapl', db = 'change_db'))
     # oc._init_em_tables()
+    
+    oc.close_connections()
     
     
     

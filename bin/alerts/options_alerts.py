@@ -14,7 +14,8 @@ from scipy import stats
 
 
 import sys
-sys.path.append('/Users/jerald/Documents/Dir/Python/Stocks')
+from pathlib import Path
+sys.path.append(str(Path(__file__).resolve().parents[2]))
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')

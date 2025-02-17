@@ -6,7 +6,8 @@ Manager for the options data pipeline.
 
 """
 import sys
-sys.path.append('/Users/jerald/Documents/Dir/Python/stocker')
+from pathlib import Path    
+sys.path.append(str(Path(__file__).resolve().parents[2]))
 import pandas as pd 
 import numpy as np 
 import yfinance as yf 

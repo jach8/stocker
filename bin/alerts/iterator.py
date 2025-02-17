@@ -1,6 +1,9 @@
 import sys
-sys.path.append('/Users/jerald/Documents/Dir/Python/stocker')
+from pathlib import Path    
+sys.path.append(str(Path(__file__).resolve().parents[2]))
 from bin.options.optgd.db_connect import Connector as Manager
+
+
 import pandas as pd
 from tqdm import tqdm
 

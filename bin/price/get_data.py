@@ -88,7 +88,30 @@ class UpdateStocks:
         except json.JSONDecodeError as e:
             logger.error(f"Invalid JSON in ticker file: {e}")
             raise
+    
+    def get_table_lengths(self, conn: sql.Connection) -> bool:
+        """Return the table lengths for all stocks (tables) in the database.
 
+        Args:
+            conn (sql.Connection): SQLite database connection
+
+        Returns:
+            bool: True if average table length is greater than 30, False otherwise
+        """
+        tab_lens = []
+        with conn:
+            query = "SELECT name FROM sqlite_master WHERE type='table';"
+            tables = pd.read_sql_query(query, conn).iloc[:, 0].values
+            table_lengths = {}
+            for table in tables:
+                query = f"SELECT COUNT(*) FROM {table}"
+                tab_lens.append(pd.read_sql_query(query, conn).iloc[0, 0])
+                
+        if np.mean(tab_lens) < 30:
+            return False
+        else:
+            return True
+            
     def update_stocks(self) -> None:
         """
         Update daily stock data in database.
@@ -108,8 +131,12 @@ class UpdateStocks:
                 latest_date = pd.read_sql_query(query, conn).iloc[0][0]
                 
                 logger.debug(f"Fetching data for {len(stocks)} stocks from {latest_date}")
-                # data = yf.download(stock_symbols, start=latest_date)
-                data = yf.download(stock_symbols, start="1900-01-01")
+                if self.get_table_lengths(conn) == False:
+                    logger.info('Database tables are empty, fetching all data')
+                    data = yf.download(stock_symbols, start="1900-01-01")
+                else:
+                    data = yf.download(stock_symbols, start=latest_date)
+                
                 if data.empty:
                     raise StockDataError("No data retrieved from Yahoo Finance")
                 

@@ -1,0 +1,21 @@
+{
+    "bonds_db": "data/bonds/bonds.db", 
+    
+    "daily_db": "data/prices/stocks.db", 
+    "intraday_db": "data/prices/stocks_intraday.db",
+    "ticker_path": "data/stocks/tickers.json",
+
+    "inactive_db": "data/options/log/inactive.db",
+    "backup_db": "data/options/log/backup.db",
+    "tracking_values_db": "data/options/tracking_values.db",
+    "tracking_db": "data/options/tracking.db",
+    "stats_db": "data/options/stats.db",
+    "vol_db": "data/options/vol.db",
+    "change_db": "data/options/option_change.db", 
+    "option_db": "data/options/options.db", 
+    "dates_db": "data/options/dates.db",
+
+    "earnings_dict": "data/earnings/earnings.pkl",
+    "stock_names" : "data/stocks/stock_names.db",
+    "stock_info_dict": "data/stocks/stock_info.json"
+}

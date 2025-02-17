@@ -17,12 +17,12 @@ import json
 
 class Connector: 
     def __init__(self, connections):
-        """ 
-        Database Connector for Options Data. 
+        """
+        Database Connector for Options Data.
         
         
         Args:
-            connections (dict): Dictionary of the paths to the databases. 
+            connections (dict): Dictionary of the paths to the databases.
                 Example:
                     {
                         'option_db': 'Path to the option database',
@@ -39,56 +39,14 @@ class Connector:
         Attributes:
             stocks: Dictionary of the stocks.
             all_stocks: List of all the stocks in the database.
-            
-        To Do: 
-            1_ Change the way we connect to the databases. Opting for a Pooling Method, 
-                the main class that manages connections should look something like this:
-                    Example: 
-                    
-                    # connection_manager.py
-                    import sqlite3
-                    from contextlib import contextmanager
-
-                    class ConnectionManager:
-                        def __init__(self, db_paths):
-                            self.db_paths = db_paths
-                            self.connections = {}
-
-                        @contextmanager
-                        def get_connection(self, db_name):
-                            if db_name not in self.connections:
-                                self.connections[db_name] = sqlite3.connect(self.db_paths[db_name])
-                            try:
-                                yield self.connections[db_name]
-                            finally:
-                                # Here you might choose to not close the connection if using lazy loading
-                                # self.connections[db_name].close()
-                                pass
-
-                        def close_all(self):
-                            for conn in self.connections.values():
-                                conn.close()
-                            self.connections.clear()
-
-                    # Usage in other modules:
-                    # from connection_manager import ConnectionManager
-                    # conn_manager = ConnectionManager({'option_db': 'path_to_db'})
-                    # with conn_manager.get_connection('option_db') as conn:
-                    #     cursor = conn.cursor()
-                    #     # Operations here
-                    
-            2_ Add method to Ensure that Deletions from the Option DB are correctly Logged in the backup DB or Inactive DB.
-                - For any LARGE CHANGES you should log them in the backup db or inactive db.
-                (1/31/2025): Error: I mistakenly deleted the entire option_db and change_db for SPY :(
-                    - This happened because i used 'replace' instead of 'append' when updating the option_db.
                     
         """
         self.execution_start_time = time.time()
         try:
             # Add stocks, Keys: ['all_stocks', 'bonds','etf', 'equities', 'market', 'mag8']
-            self.stocks = json.load(open(connections['ticker_path'], 'r'))     
+            self.stocks = json.load(open(connections['ticker_path'], 'r'))
             
-            # Add Connections 
+            # Add Connections
             self.path_dict = connections
             self.option_db = sql.connect('file:' + connections['option_db'] + '?mode=ro', uri = True)
             self.option_db_cursor = self.option_db.cursor()
@@ -112,8 +70,8 @@ class Connector:
             print("Options db Connected: {}".format(dt.datetime.now()))
         
         except Exception as e:
-            print("Connection Failed: ", e,)  
-            raise Exception("Connection Failed: ", e)     
+            print("Connection Failed: ", e,)
+            raise Exception("Connection Failed: ", e)
         
     def __check_inactive_db_for_stock(self, stock: str) -> bool: 
         """ 

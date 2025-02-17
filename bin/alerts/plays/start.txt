@@ -35,8 +35,6 @@ Look for plays with specific setups:
 
 - Lastly package all these up into plays that we can use. 
 
-
-
 - We also want to be able to test this strategy out. 
     - How often does it win? 
     - What models will help aid in the decision making process?
