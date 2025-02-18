@@ -1,4 +1,0 @@
-Add the working directory and tickers to initialize the program
-
-
-Path: ../

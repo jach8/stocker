@@ -9,6 +9,9 @@ import json
 import warnings
 import sys
 # Set Path
+from pathlib import Path 
+
+sys.path.append(str(Path(__file__).resolve().parents[3]))
 from bin.options.optgd.db_connect import Connector 
 
 
@@ -109,7 +112,7 @@ if __name__ == '__main__':
         return out
 
     # Add an additional function for further processing. In this example we add bs_df to the output to get relevant Greek Information. 
-    out = it.query_iteroator(test_query, it.option_db, additional_function = bs_df)
+    out = it.query_iteroator(test_query, it.connections.get('option_db'), additional_function = bs_df)
     print(out)
     print(out.sample(40))
         

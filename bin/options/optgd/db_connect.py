@@ -1,25 +1,22 @@
 """
+Database connector for options data using connection pooling.
 
-Do we really need to connect to ALL the databases at once? 
-- Should we connect to the databases as needed?
-
-
+This module provides a thread-safe database connector that leverages connection pooling
+for efficient database access and resource management.
 """
 
-
-import sqlite3 as sql 
-import numpy as np 
-import pandas as pd 
-import datetime as dt 
-import re
+import json
 import time
-import json 
+import datetime as dt
+import pandas as pd
+from typing import Dict, Optional
 
-class Connector: 
-    def __init__(self, connections):
+from bin.utils.connection_pool import get_pool
+
+class Connector:
+    def __init__(self, connections: Dict[str, str]):
         """
         Database Connector for Options Data.
-        
         
         Args:
             connections (dict): Dictionary of the paths to the databases.
@@ -33,132 +30,114 @@ class Connector:
                         'tracking_values_db': 'Path to the tracking values database',
                         'backup_db': 'Path to the backup database',
                         'inactive_db': 'Path to the inactive database',
-                        'ticker_path': 'Path to the ticker json file
+                        'ticker_path': 'Path to the ticker json file'
                     }
                     
         Attributes:
             stocks: Dictionary of the stocks.
-            all_stocks: List of all the stocks in the database.
-                    
+            path_dict: Dictionary of database paths.
+            pool: Connection pool instance.
         """
         self.execution_start_time = time.time()
+        self.path_dict = connections
+        self.pool = get_pool()
+        
         try:
-            # Add stocks, Keys: ['all_stocks', 'bonds','etf', 'equities', 'market', 'mag8']
-            self.stocks = json.load(open(connections['ticker_path'], 'r'))
+            # Load stocks configuration
+            with open(connections['ticker_path'], 'r') as f:
+                self.stocks = json.load(f)
+                
+            print(f"Options db Connected: {dt.datetime.now()}")
             
-            # Add Connections
-            self.path_dict = connections
-            self.option_db = sql.connect('file:' + connections['option_db'] + '?mode=ro', uri = True)
-            self.option_db_cursor = self.option_db.cursor()
-            
-            self.write_option_db = sql.connect(connections['option_db'])
-            self.write_option_db_cursor = self.write_option_db.cursor()
-            
-            self.change_db = sql.connect(connections['change_db'])
-            self.change_db_cursor = self.change_db.cursor()
-            
-            self.vol_db = sql.connect(connections['vol_db'])
-            self.stats_db = sql.connect(connections['stats_db'])
-            self.tracking_db = sql.connect(connections['tracking_db'])
-            self.tracking_values_db = sql.connect(connections['tracking_values_db'])
-            self.backup = sql.connect(connections['backup_db'])
-            
-            
-            self.inactive_db = sql.connect(connections['inactive_db'])
-            self.inactive_db_cursor = self.inactive_db.cursor()
-
-            print("Options db Connected: {}".format(dt.datetime.now()))
-        
         except Exception as e:
-            print("Connection Failed: ", e,)
-            raise Exception("Connection Failed: ", e)
-        
-    def __check_inactive_db_for_stock(self, stock: str) -> bool: 
-        """ 
-        Check if the stock is in the inactive database 
+            error_msg = f"Connection Failed: {str(e)}"
+            print(error_msg)
+            raise Exception(error_msg)
+
+    def __check_inactive_db_for_stock(self, stock: str) -> bool:
+        """
+        Check if the stock is in the inactive database.
         
         Args:
             stock (str): Stock Ticker Symbol
         
         Returns:
             bool: True if the stock is in the database, False if not.
-        
         """
         query = f"""
-        select exists(select 1 from sqlite_master where type='table' and name='{stock}')
+        SELECT EXISTS(
+            SELECT 1 FROM sqlite_master 
+            WHERE type='table' AND name='{stock}'
+        )
         """
-        cursor = self.inactive_db_cursor
-        valid = cursor.execute(query).fetchone()[0]
-        return bool(valid)
-            
+        with self.pool.get_connection('inactive') as conn:
+            cursor = conn.cursor()
+            valid = cursor.execute(query).fetchone()[0]
+            return bool(valid)
+
     def __purge_inactive(self, stock: str) -> None:
         """
-        Purge Inactive Contracts from the Option_db database. 
-            - Save them in the inactive_db so that we can use them for tracking. 
+        Purge Inactive Contracts from the Option_db database.
+            - Save them in the inactive_db so that we can use them for tracking.
         
         Args:
             stock (str): Stock Ticker Symbol
-        
-        Returns:
-            None
-        
         """
-        exp_q = f''' select * from {stock} where date(expiry) < date('now') '''
-        cursor = self.write_option_db_cursor
-        exp = cursor.execute(exp_q).fetchall()
-        exp = pd.DataFrame(exp, columns = [x[0] for x in cursor.description])
+        # Get expired contracts from options DB
+        exp_query = f"SELECT * FROM {stock} WHERE date(expiry) < date('now')"
         
-        if exp.shape[0] > 0:
-            contracts = ','.join([f'"{x}"' for x in exp.contractsymbol])
-            change_db_q = f''' select * from {stock} where contractsymbol in ({contracts}) '''
-            cdb = pd.read_sql_query(change_db_q, self.change_db)
-            
-            if self._check_inactive_db_for_stock(stock):
-                print("EXISTING TABLE",len(exp), len(cdb))
-                exp.to_sql(stock, self.inactive_db, if_exists='append', index=False)
-                cdb.to_sql(stock + "_change", self.inactive_db, if_exists='append', index=False)
-            else:
-                print("NEW TABLE:",len(exp), len(cdb))
-                exp.to_sql(stock, self.inactive_db, if_exists='replace', index=False)
-                cdb.to_sql(stock + "_change", self.inactive_db, if_exists='replace', index=False)
-            
-            # Purge from Option DB 
-            self.write_option_db_cursor.execute(f'delete from {stock} where date(expiry) < date("now")')
-            self.write_option_db.commit()
-            
-            # Purge from Change DB
-            self.change_db_cursor.execute(f'delete from {stock} where contractsymbol in ({contracts})')
-            self.change_db.commit()
+        with self.pool.get_connection('options') as conn:
+            cursor = conn.cursor()
+            exp = cursor.execute(exp_query).fetchall()
+            columns = [x[0] for x in cursor.description]
+            exp_df = pd.DataFrame(exp, columns=columns)
         
+        if exp_df.empty:
+            return
+            
+        # Get change data for expired contracts
+        contracts = ','.join([f'"{x}"' for x in exp_df.contractsymbol])
+        change_query = f"SELECT * FROM {stock} WHERE contractsymbol IN ({contracts})"
+        
+        with self.pool.get_connection('changes') as conn:
+            change_df = pd.read_sql_query(change_query, conn)
+        
+        # Save to inactive DB
+        with self.pool.get_connection('inactive') as conn:
+            if_exists = 'append' if self.__check_inactive_db_for_stock(stock) else 'replace'
+            exp_df.to_sql(stock, conn, if_exists=if_exists, index=False)
+            change_df.to_sql(f"{stock}_change", conn, if_exists=if_exists, index=False)
+            
+            print(f"{'EXISTING' if if_exists == 'append' else 'NEW'} TABLE: "
+                  f"{len(exp_df)}, {len(change_df)}")
+        
+        # Delete from options DB
+        with self.pool.get_connection('options') as conn:
+            cursor = conn.cursor()
+            cursor.execute(f'DELETE FROM {stock} WHERE date(expiry) < date("now")')
+            conn.commit()
+        
+        # Delete from change DB
+        with self.pool.get_connection('changes') as conn:
+            cursor = conn.cursor()
+            cursor.execute(f'DELETE FROM {stock} WHERE contractsymbol IN ({contracts})')
+            conn.commit()
+
     def close_connections(self) -> None:
         """
-        Closes all the connections to the databases. 
-        
-        Returns:
-            None
-        
+        Close all connections in the pool.
         """
-        db_list = [
-            self.option_db, 
-            self.write_option_db, 
-            self.change_db, 
-            self.vol_db, 
-            self.stats_db, 
-            self.tracking_db, 
-            self.tracking_values_db, 
-            self.backup
-        ]
-        for i in db_list:
-            i.close()
+        if self.pool:
+            self.pool.close_all()
+            
         end_time = time.time()
         runtime_min = (end_time - self.execution_start_time) / 60
-        print("Connections Closed {}\nTotal Runtime: {:.2f} min".format(dt.datetime.now(), runtime_min))
-        print()
-        return None
-    
+        print(f"Connections Closed {dt.datetime.now()}")
+        print(f"Total Runtime: {runtime_min:.2f} min\n")
+
 if __name__ == "__main__":
     print("True Humility is not thinking less of yourself; It is thinking of yourself less.")
-    connections = get_path()  
+    connections = get_path()  # This should be imported or defined elsewhere
     conn = Connector(connections)
-    # conn._purge_inactive('spy')
-    # conn.close_connections()        
+    # conn.__purge_inactive('spy')
+    conn.close_connections()
