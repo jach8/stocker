@@ -15,8 +15,8 @@ from bin.options.manage_all import Manager as Optionsdb
 from bin.earnings.get_earnings import Earnings 
 from bin.price.report import perf as performance
 from bin.alerts.options_alerts import Notifications
-from bin.signals.plays.ling import Scanner
-from bin.signals.plays.dxp import dxp 
+from bin.alerts.plays.ling import Scanner
+from bin.alerts.plays.dxp import dxp 
 from bin.utils.Initialize import Initialize
 from bin.utils.add_stocks import add_stock
 
@@ -28,8 +28,6 @@ def init():
 def get_path(pre=''):
 	""" Must be in the directory to run this function. """
 	connections = {
-				##### Bonds Data ###########################
-				'bonds_db': f'{pre}data/bonds/bonds.db', 
 				##### Price Data ###########################
 				'daily_db': f'{pre}data/prices/stocks.db', 
 				'intraday_db': f'{pre}data/prices/stocks_intraday.db',
@@ -37,8 +35,6 @@ def get_path(pre=''):
 				##### Options Data ###########################
 				'inactive_db': f'{pre}data/options/log/inactive.db',
 				'backup_db': f'{pre}data/options/log/backup.db',
-				'tracking_values_db': f'{pre}data/options/tracking_values.db',
-				'tracking_db': f'{pre}data/options/tracking.db',
 				'stats_db': f'{pre}data/options/stats.db',
 				'vol_db': f'{pre}data/options/vol.db',
 				'change_db': f'{pre}data/options/option_change.db', 

@@ -3,8 +3,6 @@ from typing import Dict
 from dotenv import load_dotenv
 from bin.utils.Initialize import Initialize
 
-
-
 def load_environment() -> bool:
     """
     Load environment variables from .env file.
