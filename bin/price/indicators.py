@@ -306,8 +306,7 @@ class Indicators:
             logger.error(f"Error calculating Mean Reversion Z-Score: {str(e)}")
             raise
 
-    def get_indicators(self, fast: int = 10, medium: int = 14, 
-                      slow: int = 35, m: float = 2) -> Dict[str, np.ndarray]:
+    def get_indicators(self, fast: int = 10, medium: int = 14, slow: int = 35, m: float = 2) -> Dict[str, np.ndarray]:
         try:
             adx, diplus, diminus = self.ADX(medium)
             macd, macd_signal = self.macd(fast, medium)
@@ -367,8 +366,7 @@ class Indicators:
             logger.error(f"Error creating indicator DataFrame: {str(e)}")
             raise
     
-    def _get_moving_averages(self, fast: int = 10, medium: int = 14, 
-                           slow: int = 35, m: float = 2) -> Dict[str, np.ndarray]:
+    def _get_moving_averages(self, fast: int = 10, medium: int = 14, slow: int = 35, m: float = 2) -> Dict[str, np.ndarray]:
         ''' Return a dictionary of moving averages. '''
         try:
             return {
@@ -386,8 +384,7 @@ class Indicators:
             logger.error(f"Error getting moving averages: {str(e)}")
             raise
         
-    def _get_volatility(self, fast: int = 10, medium: int = 14, 
-                       slow: int = 35, m: float = 2) -> Dict[str, np.ndarray]:
+    def _get_volatility(self, fast: int = 10, medium: int = 14, slow: int = 35, m: float = 2) -> Dict[str, np.ndarray]:
         ''' Return a dictionary of volatility indicators. '''
         try:
             return {
@@ -403,8 +400,7 @@ class Indicators:
             logger.error(f"Error getting volatility indicators: {str(e)}")
             raise
         
-    def _get_momentum(self, fast: int = 10, medium: int = 14, 
-                     slow: int = 35, m: float = 2) -> Dict[str, np.ndarray]:
+    def _get_momentum(self, fast: int = 10, medium: int = 14, slow: int = 35, m: float = 2) -> Dict[str, np.ndarray]:
         ''' Return a dictionary of momentum indicators. '''
         try:
             return {
@@ -417,8 +413,7 @@ class Indicators:
             logger.error(f"Error getting momentum indicators: {str(e)}")
             raise
     
-    def get_states(self, fast: int = 10, medium: int = 14, 
-                  slow: int = 35, m: float = 2) -> pd.DataFrame:
+    def get_states(self, fast: int = 10, medium: int = 14, slow: int = 35, m: float = 2) -> pd.DataFrame:
         """
         Returns the action states of the indicators. 
             ema_fm: EMA(fast) - EMA(medium)
