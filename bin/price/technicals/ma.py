@@ -1,4 +1,5 @@
-"""Moving Averages Signals.
+"""
+Moving Averages Signals.
 
 This module implements technical analysis tools for calculating and analyzing
 moving averages on financial time series data.
@@ -21,7 +22,8 @@ import pandas as pd
 import numpy as np 
 import sqlite3 as sql 
 from logging import getLogger
-
+from .utils import combine_timeframes, derive_timeframe
+# from utils import combine_timeframes, derive_timeframe
 logger = getLogger(__name__)
 
 class MovingAverageError(Exception):
@@ -69,67 +71,13 @@ class moving_avg:
             DataValidationError: If DataFrame doesn't meet requirements
         """
         if not isinstance(df, pd.DataFrame):
-            raise DataValidationError("Input must be a pandas DataFrame")
+            raise DataValidationError(f"Input must be a pandas DataFrame Got: {type(df)}")
         if not isinstance(df.index, pd.DatetimeIndex):
             raise DataValidationError("DataFrame must have DatetimeIndex")
         if len(df) < 2:
             raise DataValidationError("DataFrame must have at least 2 rows")
         if 'close' not in list(df.columns.str.lower()):
             raise DataValidationError("DataFrame must have 'close' column")
-
-    def get_time_difference(self, df: pd.DataFrame) -> str:
-        """Determine time difference between consecutive rows.
-
-        Args:
-            df: DataFrame with datetime index
-
-        Returns:
-            Single character timeframe indicator:
-                'T': Minutes
-                'H': Hours
-                'D': Days
-                'W': Weeks
-                'M': Months
-
-        Raises:
-            TimeframeError: If time difference cannot be determined
-        """
-        try:
-            diff = df.index[-1] - df.index[-2]
-            if diff.days >= 28:
-                return 'M'
-            elif diff.days >= 7:
-                return 'W'
-            elif diff.days >= 1:
-                return 'D'
-            elif diff.seconds >= 3600:
-                return 'H'
-            else:
-                return 'T'
-        except Exception as e:
-            logger.error(f"Error calculating time difference: {str(e)}")
-            raise TimeframeError(f"Failed to determine timeframe: {str(e)}")
-
-    def derive_timeframe(self, df: pd.DataFrame) -> str:
-        """Get DataFrame frequency indicator.
-
-        Args:
-            df: DataFrame with datetime index
-
-        Returns:
-            Single character timeframe indicator
-
-        Raises:
-            TimeframeError: If frequency cannot be determined
-        """
-        try:
-            freq = pd.infer_freq(df.index)
-            if freq is None:
-                freq = self.get_time_difference(df)
-            return freq
-        except Exception as e:
-            logger.error(f"Error deriving timeframe: {str(e)}")
-            raise TimeframeError(f"Failed to derive timeframe: {str(e)}")
 
     def ema(self, df: pd.DataFrame, window: int) -> pd.Series:
         """Calculate Exponential Moving Average.
@@ -145,7 +93,7 @@ class moving_avg:
         """
         self._validate_dataframe(df)
         out = df.copy()
-        tf = self.derive_timeframe(df)
+        tf = derive_timeframe(df)
         col_name = f'EMA{window}{tf}'
         out[col_name] = df['close'].ewm(span=window, adjust=False).mean()
         return out[col_name]
@@ -162,7 +110,7 @@ class moving_avg:
         """
         self._validate_dataframe(df)
         out = df.copy()
-        tf = self.derive_timeframe(df)
+        tf = derive_timeframe(df)
         col_name = f'SMA{window}{tf}'
         out[col_name] = df['close'].rolling(window=window).mean()
         return out[col_name]
@@ -182,7 +130,7 @@ class moving_avg:
         self._validate_dataframe(df)
         out = df.copy()
         weights = np.arange(1, window + 1)
-        tf = self.derive_timeframe(df)
+        tf = derive_timeframe(df)
         col_name = f'WMA{window}{tf}'
         out[col_name] = df['close'].rolling(window=window).apply(
             lambda x: np.dot(x, weights) / weights.sum(),
@@ -226,7 +174,7 @@ class moving_avg:
                         first_value = False
                     else:
                         answer[i] = answer[i-1] + sc.iloc[i] * (price.iloc[i] - answer[i-1])
-            tf = self.derive_timeframe(df)
+            tf = derive_timeframe(df)
             col_name = f'KAMA{window}{tf}'
             out[col_name] = answer
             return out[col_name]
@@ -265,32 +213,12 @@ class moving_avg:
         out.insert(4,'volume', df['volume'])
         return out
 
-    def concatenate_min_daily(self, min_df: pd.DataFrame, daily_df: pd.DataFrame) -> pd.DataFrame:
-        """Combine intraday and daily data.
-
-        Args:
-            min_df: DataFrame with intraday data
-            daily_df: DataFrame with daily data
-
-        Returns:
-            DataFrame with combined data aligned to intraday index
-        """
-        min_df = min_df.copy()
-        daily_df = daily_df.copy()
-        min_df['day'] = min_df.index.date
-        daily_df['day'] = daily_df.index.date
-        cols = ['open', 'high', 'low', 'close', 'volume']
-        daily_cols = [f'daily_{x}' for x in cols]
-        daily_df.rename(columns=dict(zip(cols, daily_cols)), inplace=True)
-        return pd.merge(
-            min_df, daily_df, on='day', how='inner'
-        ).drop(columns=['day']).set_index(min_df.index)
-
 if __name__ == "__main__":
     import sys
-    sys.path.append('/Users/jerald/Documents/Dir/Python/Stocks')
-    from main import Pipeline as Manager
-    from bin.main import get_path
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).resolve().parents[2]))
+    from main import Manager, get_path
+    from src.utils import combine_timeframes
 
     # Initialize
     connections = get_path()
@@ -298,15 +226,15 @@ if __name__ == "__main__":
     ma = moving_avg()
     
     # Get sample data
-    df = m.Pricedb.ohlc('aapl', daily=False, start="2025-01-10")
-    daily_df = m.Pricedb.ohlc('aapl', daily=True)
+    df = m.Pricedb.ohlc('spy', daily=False, start="2025-01-10").drop_duplicates()
+    daily_df = m.Pricedb.ohlc('spy', daily=True)
     
     # Generate MA ribbons
-    intraday_ribbon = ma.ribbon(df, ma='kama')
-    daily_ribbon = ma.ribbon(daily_df, ma='ema')
+    intraday_ribbon = ma.ribbon(df, ma='wma')
+    daily_ribbon = ma.ribbon(daily_df, ma='wma')
     
     # Combine timeframes
-    combined = ma.concatenate_min_daily(intraday_ribbon, daily_ribbon)
+    combined = combine_timeframes(intraday_ribbon, daily_ribbon)
     
     # Display sample of results
     print("\nSample Analysis Results:")

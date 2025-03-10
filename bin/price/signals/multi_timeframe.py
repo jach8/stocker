@@ -6,9 +6,8 @@ intraday and daily timeframes while preserving the original implementation's des
 
 import pandas as pd
 import numpy as np
-from ma import moving_avg
 
-class MultiTimeframeMA(moving_avg):
+class MultiTimeframeMA:
     """A class for analyzing moving averages across multiple timeframes.
     
     This class extends the base moving_avg class to handle both intraday and
