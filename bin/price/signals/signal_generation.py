@@ -30,7 +30,7 @@ class TimeframeError(Exception):
     """Exception raised for invalid timeframe specifications."""
     pass
 
-class ChartAnalyzer(moving_avg):
+class Signals(moving_avg):
     """Analyze price charts and generate trading signals.
     
     This class extends moving_avg to add sophisticated trend analysis
@@ -301,84 +301,6 @@ class ChartAnalyzer(moving_avg):
         
         return df
 
-    def plot_signals(self, df: pd.DataFrame, save_path: Optional[str] = None):
-        """Plot price chart with signals and indicators."""
-        if 'signal' not in df.columns:
-            raise SignalGenerationError("No signals found. Run generate_signals first.")
-        
-        # Create subplot configuration
-        subplots = [
-            ('momentum', 0.2),
-            ('ma_convergence', 0.2),
-            ('trend_strength', 0.2)
-        ]
-        
-        # Get MA columns for overlay
-        ma_columns = [col for col in df.columns if any(
-            ma in col.upper() for ma in ['EMA', 'SMA', 'WMA', 'KAMA']
-        )]
-        
-        # Create MA overlays
-        ma_colors = ['blue', 'red', 'green', 'purple', 'orange']
-        ma_plots = [
-            mpf.make_addplot(
-                df[col],
-                color=ma_colors[i % len(ma_colors)],
-                width=1,
-                alpha=0.7
-            ) for i, col in enumerate(ma_columns)
-        ]
-        
-        # Create indicator subplots
-        indicator_plots = [
-            mpf.make_addplot(df[col], panel=i+1, ylabel=col)
-            for i, (col, _) in enumerate(subplots)
-        ]
-
-        # Create buy/sell signal markers
-        buy_markers = df['close'].copy()
-        sell_markers = df['close'].copy()
-        
-        # Set values for markers only at signal points
-        buy_markers[df['signal'] != 1] = np.nan
-        sell_markers[df['signal'] != -1] = np.nan
-        
-        # # Create buy/sell plots
-        # buy_plot = mpf.make_addplot(buy_markers, type='scatter', markersize=1000,
-        #                           marker='^', color='g', panel=0)
-        # sell_plot = mpf.make_addplot(sell_markers, type='scatter', markersize=1000,
-        #                            marker='v', color='r', panel=0)
-        
-        # Create plot with indicators
-        fig, axlist = mpf.plot(
-            df,
-            type='candle',
-            volume=False,
-            figsize=(15, 10),
-            style='yahoo',
-            addplot=ma_plots,
-            returnfig=True,
-            show_nontrading=True
-        )
-        
-        # Plot the buy signals
-        axlist[0].scatter(df.index, buy_markers, marker='o', color='g')
-
-
-        # Plot the sell signal
-        axlist[0].scatter(df.index, sell_markers, marker='o', color='r')
-
-        
-        # Add legend for MAs
-        if ma_columns:
-            axlist[0].legend(ma_columns)
-        
-        # if save_path:
-        #     plt.savefig(save_path, bbox_inches='tight')
-        plt.show()
-        
-        plt.close()
-
 if __name__ == "__main__":
     import sys
     sys.path.append('/Users/jerald/Documents/Dir/Python/Stocks')
@@ -391,7 +313,13 @@ if __name__ == "__main__":
     analyzer = ChartAnalyzer()
     
     # Get sample data
-    df = m.Pricedb.ohlc('nvda', daily=True, start="2000-01-01")
+    df = m.Pricedb.ohlc('iwm', daily=False, start="2024-06-01").resample('H').agg({
+        'Open': 'first',
+        'High': 'max',
+        'Low': 'min',
+        'Close': 'last',
+        'Volume': 'sum'
+    }).dropna()
     
     # Generate signals with timeframe-specific MAs
     signals = analyzer.generate_signals(
