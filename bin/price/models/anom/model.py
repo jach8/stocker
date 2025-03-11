@@ -2,13 +2,15 @@
 Anomaly detection model using various algorithms
 """
 from __future__ import annotations
-
+import os
+import logging
+import joblib
+from pathlib import Path
 import numpy as np
 import pandas as pd
 import datetime as dt
 import scipy.stats as stats 
 from logging import getLogger, Logger, DEBUG, INFO, Formatter, StreamHandler
-import logging
 from typing import Union, Optional, Dict, List, Tuple, Any
 from sklearn.cluster import KMeans
 from sklearn.ensemble import IsolationForest
@@ -19,6 +21,9 @@ from sklearn.svm import OneClassSVM
 from sklearn.neighbors import LocalOutlierFactor
 from sklearn.model_selection import TimeSeriesSplit
 from numpy.typing import NDArray
+from sklearn.kernel_approximation import Nystroem
+from sklearn.linear_model import SGDOneClassSVM
+from sklearn.pipeline import make_pipeline
 
 import sys
 import warnings
@@ -27,8 +32,7 @@ sys.path.append(str(Path(__file__).resolve().parents[1]))
 from connect import setup
 
 # Suppress sklearn warnings about feature names
-warnings.filterwarnings('ignore', category=UserWarning,
-                     message='X does not have valid feature names')
+warnings.filterwarnings('ignore', category=UserWarning,message='X does not have valid feature names')
 
 # Configure module logger
 logger = getLogger(__name__)
@@ -51,14 +55,14 @@ class anomaly_model(setup):
     """Anomaly detection model using various algorithms"""
     
     def __init__(
-        self, 
-        df: pd.DataFrame, 
-        feature_names: List[str], 
-        target_names: List[str],
-        stock: str,
-        verbose: bool = False, 
-        **kwargs
-    ) -> None:
+            self, 
+            df: pd.DataFrame, 
+            feature_names: List[str], 
+            target_names: List[str],
+            stock: str,
+            verbose: bool = False, 
+            **kwargs
+        ) -> None:
         """
         Initialize the anomaly detection model
         Args:
@@ -80,9 +84,114 @@ class anomaly_model(setup):
         self.decomp_preds: Dict[str, NDArray[np.float64]] = {}
         self.centers: Dict[str, NDArray[np.int64]] = {}
         self.distances: Dict[str, NDArray[np.float64]] = {}
+
+    def save_models(self, directory: str = "bin/price/models/anom/saved") -> None:
+        """Save all fitted models to disk"""
+        if not self.models:
+            logger.error("No models to save. Fit the model first.")
+            return
+        if not self.distances: 
+            logger.error("No distances to save. Fit the model first.")
+            return
         
-        logger.debug("Initializing model instance")
-        self.initialize(*kwargs)
+        os.makedirs(directory, exist_ok=True)
+        if hasattr(self, 'stock') and self.stock:  # Per-stock saving
+            filepath = os.path.join(directory, f"anomaly_model_{self.stock}.pkl")
+            joblib.dump({
+                'scaler': self.scaler,
+                'models': self.models,
+                'decomp': self.decomp, 
+                'distances': self.distances,
+                'feature_names': self.feature_names,
+                'target_names': self.target_names,
+                'stock': self.stock
+            }, filepath)
+            logger.info(f"Saved models for {self.stock} to {filepath}")
+        else:  # Single model for all
+            filepath = os.path.join(directory, "anomaly_model_all_stocks.pkl")
+            joblib.dump({
+                'scaler': self.scaler,
+                'models': self.models,
+                'decomp': self.decomp,
+                'distances': self.distances,
+                'feature_names': self.feature_names,
+                'target_names': self.target_names
+            }, filepath)
+            logger.info(f"Saved combined model to {filepath}")
+
+    def load_and_predict(self, new_data: pd.DataFrame, stock: str = None, directory: str = "bin/price/models/anom/saved/") -> Dict[str, pd.DataFrame]:
+        """
+        Load saved models and predict on new data
+        Args:
+            new_data: New stock data with same features
+            stock: Stock symbol (if per-stock models)
+            directory: Where models are saved
+        Returns:
+            Dictionary of model names to prediction DataFrames
+        """
+        # Determine which model to load
+        if stock and os.path.exists(os.path.join(directory, f"anomaly_model_{stock}.pkl")):
+            filepath = os.path.join(directory, f"anomaly_model_{stock}.pkl")
+        else:
+            filepath = os.path.join(directory, "anomaly_model_all_stocks.pkl")
+            stock = None
+        
+        # Load model
+        try:
+            saved_data = joblib.load(filepath)
+            self.models = saved_data['models']
+            self.decomp = saved_data['decomp']
+            self.scaler = saved_data['scaler']
+            self.distances = saved_data['distances']
+            self.feature_names = saved_data['feature_names']
+            self.target_names = saved_data['target_names']
+            if stock:
+                self.stock = saved_data['stock']
+            logger.info(f"Loaded models from {filepath}")
+        except Exception as e:
+            logger.error(f"Failed to load models: {str(e)}")
+            raise
+        
+        # Prepare new data
+        new_features = new_data[self.feature_names]
+        if hasattr(self, 'scaler'):  # Assuming you have a scaler from setup
+            new_features_scaled = self.scaler.transform(new_features)
+        else:
+            new_features_scaled = new_features.values
+        
+        # Predict with each model
+        predictions = {}
+        for model_name, model in self.models.items():
+            try:
+                if model_name in ['PCA', 'ICA']:  # Handle decomposition models
+                    transformed = self._transform_decomp(new_features_scaled, model_name)
+                    distances = self._compute_kmeans_distances(transformed, model_name)
+                    pred = np.where(distances >= self.distances[model_name].mean(), -1, 1)
+                else:
+                    pred = model.predict(new_features_scaled)
+                predictions[model_name] = pd.DataFrame(pred, index=new_data.index, columns=[model_name])
+                self._log_value_counts(pred, model_name)
+            except Exception as e:
+                logger.error(f"Prediction failed for {model_name}: {str(e)}")
+        
+        return predictions
+
+    def _transform_decomp(self, data, model_name):
+        """Transform new data using stored decomposition"""
+        assert model_name in self.decomp, f"Decomposition model {model_name} not found"
+        return self.decomp[model_name].transform(data)
+
+    def _compute_kmeans_distances(self, transformed, model_name):
+        """Compute distances for K-Means based models"""
+        try:
+            centers = self.models[model_name].cluster_centers_
+            labels = self.models[model_name].predict(transformed)
+            distances = np.array([np.linalg.norm(transformed[i] - centers[labels[i]]) 
+                                for i in range(len(transformed))])
+            return distances
+        except Exception as e:
+            logger.error(f"Failed to compute distances for {model_name}: {str(e)}")
+            raise
     
     def merge_preds(self, trainpred, testpred, model_name='anomaly'):
         """Merge predictions with price data"""
@@ -103,12 +212,11 @@ class anomaly_model(setup):
         testpred = self.price_data.loc[self.xtest.index].join(pred.loc[self.xtest.index])
         return trainpred, testpred
     
-    
     def _setup_logging(self) -> None:
         """Configure logging based on verbosity"""
         log_level = DEBUG if self.verbose else INFO
         logger.setLevel(log_level)
-        
+
     def _log_value_counts(self, predictions: ArrayLike, model_name: str) -> None:
         """Log value counts from model predictions"""
         if isinstance(predictions, (pd.Series, pd.DataFrame)):
@@ -118,12 +226,12 @@ class anomaly_model(setup):
         normal = counts.get(1, 0)
         anomalies = counts.get(-1, 0)
         logger.debug(f"{model_name} predictions - Normal: {normal}, Anomalies: {anomalies}")
-        
+
     def _isolation_forest(self) -> None:
         """Unsupervised Isolation Forest for anomaly detection"""
         logger.debug("Running Isolation Forest...")
             
-        iso = IsolationForest(contamination='auto', random_state=999)
+        iso = IsolationForest(contamination=0.05, random_state=999)
         iso.fit(self.xtrain)
         
         # Predict (-1 for outliers, 1 for inliers)
@@ -138,122 +246,52 @@ class anomaly_model(setup):
         self.models['IsolationForest'] = iso
         self.model_training['IsolationForest'] = iso.score_samples(self.xtrain)
     
-    def _optimize_svm_params(self) -> Dict[str, Any]:
-        """
-        Optimize SVM parameters using grid search with custom anomaly scorer
-        Returns:
-            Dictionary of best parameters
-        """
-        logger.debug("Optimizing SVM parameters...")
-        
-        # Define parameter grid
-        param_grid = {
-            'kernel': ['rbf', 'poly', 'sigmoid'],
-            'nu': [0.01, 0.05, 0.1, 0.2],
-            'gamma': ['scale', 'auto', 0.1, 0.01],
-            'degree': [2, 3, 4]  # For polynomial kernel
-        }
-        
-        # Initialize base model
-        base_model = OneClassSVM()
-        
-        # Set up time series cross-validation
-        tscv = TimeSeriesSplit(n_splits=5)
-        
-        # Custom scorer for anomaly detection
-        def anomaly_scorer(estimator, X, y=None):
-            """
-            Custom scoring function for anomaly detection
-            Args:
-                estimator: Fitted estimator
-                X: Input data
-                y: True labels (optional, included for compatibility)
-            Returns:
-                float: Combined metric score
-            """
-            try:
-                # Get decision function scores (negative for anomalies)
-                scores = estimator.decision_function(X)
-                
-                # Convert to binary predictions (-1 for anomaly, 1 for normal)
-                # Using median as threshold (common approach for OneClassSVM)
-                threshold = np.median(scores)
-                y_pred = np.where(scores <= threshold, -1, 1)
-                
-                # If true labels are provided, calculate supervised metrics
-                if y is not None and len(y) == len(y_pred):
-                    precision = precision_score(y, y_pred, pos_label=-1, zero_division=0)
-                    recall = recall_score(y, y_pred, pos_label=-1, zero_division=0)
-                    f1 = f1_score(y, y_pred, pos_label=-1, zero_division=0)
-                    # Weighted combination of metrics
-                    return 0.5 * f1 + 0.3 * precision + 0.2 * recall
-                
-                # If no true labels (unsupervised), use silhouette-like metric
-                else:
-                    # Normalize scores
-                    scores_norm = (scores - scores.min()) / (scores.max() - scores.min())
-                    # Calculate separation between predicted anomalies and normals
-                    anomaly_scores = scores_norm[y_pred == -1]
-                    normal_scores = scores_norm[y_pred == 1]
-                    if len(anomaly_scores) == 0 or len(normal_scores) == 0:
-                        return 0.0
-                    separation = np.abs(np.mean(anomaly_scores) - np.mean(normal_scores))
-                    return separation
-                    
-            except Exception as e:
-                logger.debug(f"Scoring error: {str(e)}")
-                return 0.0
-        
-        # Create scorer
-        custom_scorer = make_scorer(
-            anomaly_scorer,
-            greater_is_better=True,
-            needs_threshold=False
-        )
-        
-        # Perform grid search with time series CV
-        grid_search = GridSearchCV(
-            estimator=base_model,
-            param_grid=param_grid,
-            scoring=custom_scorer,
-            cv=tscv,
-            n_jobs=-1,
-            verbose=1,
-            return_train_score=True
-        )
-        
-        # Fit grid search
-        logger.info("Starting SVM grid search...")
-        try:
-            # Convert to numpy array if DataFrame
-            X_train = self.xtrain.values if isinstance(self.xtrain, pd.DataFrame) else self.xtrain
-            
-            # Check if ytrain exists and is valid
-            if hasattr(self, 'ytrain') and len(self.ytrain) == len(self.xtrain):
-                grid_search.fit(X_train, self.ytrain)
-            else:
-                grid_search.fit(X_train)
-                
-            # Log results
-            logger.info(f"Best parameters: {grid_search.best_params_}")
-            logger.info(f"Best score: {grid_search.best_score_:.4f}")
-            
-            # Log top 3 parameter combinations
-            results_df = pd.DataFrame(grid_search.cv_results_)
-            top_3 = results_df.nlargest(3, 'mean_test_score')
-                
-            return grid_search.best_params_
-            
-        except Exception as e:
-            logger.error(f"Grid search failed: {str(e)}")
-            return param_grid  # Return default parameters as fallback
-        
     def _svm(self) -> None:
         """One Class SVM for anomaly detection"""
         logger.debug("Running One-Class SVM...")
             
         # Optimize parameters
-        best_params = self._optimize_svm_params()
+        def optimize_svm_params() -> Dict[str, Any]:
+            """
+            Optimize SVM parameters using grid search with custom anomaly scorer
+            Returns:
+                Dictionary of best parameters
+            """
+            logger.debug("Optimizing SVM parameters...")
+            
+            # Define parameter grid
+            param_grid = {
+                'kernel': ['rbf', 'poly', 'sigmoid'],
+                'nu': [0.01, 0.05, 0.1, 0.2],
+                'gamma': ['scale', 'auto'],
+                'degree': [2, 3, 4]  # For polynomial kernel
+            }
+            
+            # Initialize base model
+            base_model = OneClassSVM()
+            
+            # Set up time series cross-validation
+            tscv = TimeSeriesSplit(n_splits=5)
+            
+            # Define custom scorer for anomaly detection
+            scorer = make_scorer(f1_score, pos_label=-1)
+
+            # Perform grid search
+            grid_search = GridSearchCV(
+                base_model,
+                param_grid,
+                cv=tscv,
+                scoring=scorer,
+                n_jobs=-1
+            )
+            grid_search.fit(self.xtrain, self.ytrain)
+
+            # Get best parameters
+            best_params = grid_search.best_params_
+
+            return best_params
+        
+        best_params = optimize_svm_params()
         
         # Initialize and fit model with best parameters
         svm = OneClassSVM(**best_params)
@@ -275,6 +313,44 @@ class anomaly_model(setup):
         """Local Outlier Factor for anomaly detection"""
         logger.debug("Running Local Outlier Factor...")
             
+
+        def optimize_lof_params(xtrain_df):
+            """
+            Optimize LOF parameters using grid search with custom anomaly scorer
+            Returns:
+                Dictionary of best parameters
+            """
+            logger.debug("Optimizing LOF parameters...")
+            
+            # Define parameter grid
+            param_grid = {
+                'n_neighbors': np.arange(2, 6),
+                'contamination': ['auto'],
+                'novelty': [True]
+            }
+            
+            # Initialize base model
+            base_model = LocalOutlierFactor()
+            
+            # Set up time series cross-validation
+            tscv = TimeSeriesSplit(n_splits=5)
+            
+            # Define custom scorer for anomaly detection
+            scorer = make_scorer(f1_score, pos_label=-1)
+
+            # Perform grid search
+            grid_search = GridSearchCV(
+                base_model,
+                param_grid,
+                cv=tscv,
+                scoring=scorer,
+                n_jobs=-1
+            )
+            grid_search.fit(xtrain_df, self.ytrain)
+
+            # Get best parameters
+            return grid_search.best_params_
+        
         # Create DataFrames with consistent feature names
         feature_cols = self.features_scaled.columns
         
@@ -289,8 +365,9 @@ class anomaly_model(setup):
             columns=feature_cols,
             index=self.xtest.index
         )
-            
-        lof = LocalOutlierFactor(n_neighbors=20, novelty=True, contamination='auto')
+        
+        best_params = optimize_lof_params(xtrain_df)
+        lof = LocalOutlierFactor(**best_params)
         
         # Fit using DataFrame with feature names
         lof.fit(xtrain_df)
@@ -360,6 +437,8 @@ class anomaly_model(setup):
         self.distances[name] = distances
         
         # Convert distances to anomaly predictions (-1 for anomaly, 1 for normal)
+        avg_dist = distances.mean()
+        threshold = avg_dist * 1.5
         predictions = np.where(distances >= threshold, -1, 1)
         self.decomp_preds[name] = predictions
         self.centers[name] = labels
@@ -403,10 +482,8 @@ class anomaly_model(setup):
         """
         logger.debug("Running PCA...")
         # Force 2 components
-        pca = PCA(n_components=2)
-        transformed = pca.fit_transform(self.features_scaled)
-        self.decomp['PCA'] = transformed
-        
+        pca = PCA(n_components=2).fit(self.features_scaled)
+        self.decomp['PCA'] = pca
         variance_ratio = pca.explained_variance_ratio_
         cumulative_variance = np.cumsum(variance_ratio)
         logger.debug(f"PCA component variance ratios: {variance_ratio}")
@@ -414,11 +491,10 @@ class anomaly_model(setup):
         
         return pca
     
-
     def _kmeans_pca(self, threshold: float = 1.1618) -> None:
         """K-means anomaly detection in PCA space"""
         pca = self._pca()
-        transformed = self.decomp['PCA']
+        transformed = self.decomp['PCA'].transform(self.features_scaled)
         
         # Ensure we have 2D data for visualization
         if transformed.shape[1] < 2:
@@ -437,15 +513,14 @@ class anomaly_model(setup):
         results = components.join(predictions)
         
         self.training_preds['PCA'], self.test_preds['PCA'] = self.pca_pred(predictions)
-        
     
     def _ica_detection(self, threshold: float = 1.1618) -> None:
         """Independent Component Analysis with K-means anomaly detection"""
         logger.debug("Running ICA detection...")
             
-        ica = FastICA(n_components=2, random_state=999)
-        transformed = ica.fit_transform(self.features_scaled)
-        self.decomp['ICA'] = transformed
+        ica = FastICA(n_components=2, random_state=999).fit(self.features_scaled)
+        self.decomp['ICA'] = ica
+        transformed = ica.transform(self.features_scaled)
         
         predictions = self._kmeansAnomalyDetection(transformed, threshold=threshold, name='ICA')
         
@@ -458,20 +533,88 @@ class anomaly_model(setup):
         
         self.training_preds['ICA'], self.test_preds['ICA'] = self.pca_pred(predictions)
 
-    
-    def fit(self, threshold: float = 1.1618) -> None:
+    def _svm_sgd(self, nu: float = 0.05, gamma: float = 2.0, n_components: int = 100) -> None:
+        """
+        One-Class SVM with kernel approximation using Nystroem and SGD optimization
+        Args:
+            nu: An upper bound on the fraction of training errors and a lower bound of the fraction of support vectors
+            gamma: Kernel coefficient for 'rbf' kernel
+            n_components: Number of components to keep in Nystroem approximation
+        """
+        logger.debug("Running One-Class SVM with kernel approximation and SGD...")
+        
+        # Set random state for reproducibility
+        random_state = 999
+        
+        # Create kernel approximation
+        transform = Nystroem(
+            kernel='rbf',
+            gamma=gamma,
+            n_components=n_components,
+            random_state=random_state
+        )
+        
+        # Create SGD-based One-Class SVM
+        sgd_ocsvm = SGDOneClassSVM(
+            nu=nu,
+            shuffle=True,
+            fit_intercept=True,
+            random_state=random_state,
+            tol=1e-4,
+            learning_rate='optimal'
+        )
+        
+        # Create pipeline
+        model = make_pipeline(transform, sgd_ocsvm)
+        
+        # Fit the model
+        try:
+            # Convert to numpy array if DataFrame
+            X_train = self.xtrain.values if isinstance(self.xtrain, pd.DataFrame) else self.xtrain
+            
+            model.fit(X_train)
+            
+            # Predict
+            train_pred = model.predict(self.xtrain)
+            test_pred = model.predict(self.xtest)
+            
+            # Store predictions
+            self.training_preds['SVM_SGD'], self.test_preds['SVM_SGD'] = \
+                self.merge_preds(train_pred, test_pred, model_name="SVM_SGD")
+            
+            # Log prediction statistics
+            self._log_value_counts(test_pred, "SVM_SGD")
+            
+            # Store model and scores
+            self.models['SVM_SGD'] = model
+            self.model_training['SVM_SGD'] = model.decision_function(self.xtrain)
+            
+            # Log additional information
+            n_errors_train = np.sum(train_pred == -1)
+            n_errors_test = np.sum(test_pred == -1)
+            logger.info(f"SVM_SGD Training errors: {n_errors_train}")
+            logger.info(f"SVM_SGD Test errors: {n_errors_test}")
+            
+        except Exception as e:
+            logger.error(f"Error fitting SVM_SGD: {str(e)}")
+            raise
+        
+        logger.debug("SVM_SGD fitting completed successfully")
+
+    def fit(self, threshold: float = 1.1618, **kwargs) -> None:
         """
         Fit all anomaly detection models
         Args:
             threshold: Distance threshold for K-means based methods
         """
-        if not hasattr(self, 'features_scaled'):
-            raise ValueError("Data not initialized. Call initialize() first.")
+        logger.debug("Initializing model instance")
+        self.initialize(*kwargs)
             
         # Traditional anomaly detection methods
         self._isolation_forest()
         self._svm()
         self._lof()
+        self._svm_sgd()
         
         # Dimensionality reduction + K-means methods
         self._kmeans_pca(threshold)
