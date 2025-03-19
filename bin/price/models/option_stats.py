@@ -35,13 +35,11 @@ ___ Option Statistics as Features: ______
 		net_put_oi_change5d : --> float64 :      Net Put OI Change 5 Day
 """
 import sys
-from pathlib import Path
-# Add the parent directory to the system path
-sys.path.append(str(Path(__file__).resolve().parents[2]))
+sys.path.append('/Users/jerald/Documents/Dir/Python/Stocks')
 import sqlite3 as sql
-import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
+import json 
 
 class data:
 	def __init__(self, connections):
@@ -49,6 +47,7 @@ class data:
 		self.vol_db = connections['vol_db']
 		# Connect to the daily_db: Contains the daily price data for each stock.
 		self.daily_db = connections['daily_db']
+		self.stocks = json.load(open(connections['ticker_path'], 'r'))
 
 	@staticmethod
 	def connect_to_db(db, query):
@@ -89,6 +88,21 @@ class data:
 			The DataFrame with the columns dropped.
 		"""
 		return df[df.columns.drop(list(df.filter(regex=string)))]
+	
+	def calculate_ivr(self, df, col):
+		"""
+		Calculate Implied Volatility Rank (IVR).
+		Args:
+			df (pd.DataFrame): DataFrame containing historical data.
+			col (str): Column name for IV data.	
+		Returns:
+			float: IVR between 0 and 100.
+		"""
+		iv = df[col]
+		iv_52w_high = df[col].rolling(window=252, min_periods=1).max()
+		iv_52w_low = df[col].rolling(window=252,  min_periods=1).min()
+		ivr = (iv - iv_52w_low) / (iv_52w_high - iv_52w_low) * 100
+		return ivr
 
 	def daily_opt_stat(self, stock):
 		"""
@@ -100,6 +114,15 @@ class data:
 		"""
 		# current_features = self.Optionsdb.option_custom_q(f'''select min(datetime(gatherdate)) as gd, * from {stock} group by date(gatherdate)''', 'vol_db')
 		current_features = self.get_stats(stock)
+		current_features['pcr'] = current_features['put_vol'] / current_features['call_vol']
+		current_features['pcr_rank'] = self.calculate_ivr(current_features, 'pcr')
+		current_features['call_ivr'] = self.calculate_ivr(current_features, 'call_iv')
+		current_features['put_ivr'] = self.calculate_ivr(current_features, 'put_iv')
+		current_features['atm_ivr'] = self.calculate_ivr(current_features, 'atm_iv')
+		current_features['otm_ivr'] = self.calculate_ivr(current_features, 'otm_iv')
+
+
+
 		f1 = current_features.copy()
 		f1.gatherdate = pd.to_datetime(f1.gatherdate)
 		f1.insert(0, 'date', f1.gatherdate.dt.date)
