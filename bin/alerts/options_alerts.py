@@ -14,8 +14,7 @@ from scipy import stats
 
 
 import sys
-from pathlib import Path
-sys.path.append(str(Path(__file__).resolve().parents[2]))
+sys.path.append('/Users/jerald/Documents/Dir/Python/Stocks')
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -55,7 +54,6 @@ class Notifications:
             else:
                 df = pd.read_sql(f'select * from {stock} where date(gatherdate) <= date("{date}")', self.vol_db, parse_dates=['gatherdate'], index_col=['gatherdate'])
                 
-            # dropCols = list(df.filter(regex='pct|spread|delta|gamma|theta|vega|prem|iv|total'))
             # dropCols = list(df.filter(regex='pct|spread|total|atm|otm|iv_chng'))
             dropCols = list(df.filter(regex='pct|spread|total|iv_chng'))
             df = df.drop(columns=dropCols)
@@ -248,38 +246,11 @@ class Notifications:
             return 0  # Avoid division by zero
         return (last_value - mean) / std_dev      
     
-    
-    ##### Example of how to split the logic into separate methods ##################################################
-    def volume_oi_logic(self, df: pd.DataFrame, col: str) -> Optional[str]:
-        """
-        Generate text notifications based on changes in option
-        volume or open interest metrics.
-        
-        Args:
-            df (pd.DataFrame): DataFrame with stock data.
-            col (str): Column to analyze.
-        
-        Returns:
-            Optional[str]: Notification text or None if not applicable.
-        """
-        current = df[col].iloc[-1]
-        previous = df[col].iloc[-2] if df.shape[0] > 1 else None
-        col_name = self.col_map(col)
-        if previous is not None:
-            direction = "surged higher" if current > previous else "pulled back"
-        
-        if df.shape[0] > 5:
-            five_day_avg = df[col].rolling(window=5).mean().iloc[-1]
-        
+    ############################################################################################################################
+    ##############################################  NOTIFICATIONS TEXT  ########################################################
+    ############################################################################################################################
 
-        txt = f"${stock.upper()} {col_name} has {direction} to {current:,.2f}, 5x higher than 5-day average ({five_day_avg:,.2f})"
-        txt = self._colors('bright-yellow', txt)
-        logger.info(f"{txt}")
-        # return txt  
 
-    
-
-    ##############################################  NOTIFICATIONS  ########################################################
     def __check_iv_metrics(self, stock: str, df: pd.DataFrame, col: str, col_name: str, current: float) -> Optional[str]:
         """
         Generate notifications based on implied volatility metrics.
@@ -304,6 +275,7 @@ class Notifications:
                 color = 'bright-red' if ivr > 80 else 'bright-green'
                 msg = f"${stock.upper()} {col_name} Rank is at {ivr:.2f}%, suggesting"
                 msg += f" {option_type} Options are {expense}" if option_type else f" Options are {expense}"
+                logger.info(self._colors(color, msg))
                 return self._colors(color, msg)
                 
         except Exception as e:
@@ -318,20 +290,24 @@ class Notifications:
         if oi_change_rate is not None and abs(oi_change_rate) > 5:
             direction = "increased" if oi_change_rate > 0 else "decreased"
             color = 'green' if oi_change_rate > 0 else 'red'
-            return self._colors(color, f"${stock.upper()} {col_name} has {direction} by {abs(oi_change_rate):.2f}%")
+            msg = self._colors(color, f"${stock.upper()} {col_name} has {direction} by {abs(oi_change_rate):.2f}%")
+            logger.info(msg)
+            return msg
         return None
 
-    def __check_volume_oi(self, stock: str, df: pd.DataFrame, col: str, col_name: str,
-                         current: float, previous: Optional[float]) -> Optional[str]:
+    def __check_volume_oi(self, stock: str, df: pd.DataFrame, col: str, col_name: str, current: float, previous: Optional[float]) -> Optional[str]:
         """
         Generate notifications based on volume or open interest levels.
         """
         if ('vol' in col or 'oi' in col) and df.shape[0] > 5:
             five_day_avg = df[col].rolling(window=5).mean().iloc[-1]
-            if current > five_day_avg * 5 and previous is not None:
+            twenty_day_avg = df[col].rolling(window=20).mean().iloc[-1]
+            if current > five_day_avg * 5 and previous is not None and current > 0:
                 direction = "surged higher" if current > previous else "pulled back"
-                return self._colors('bright-yellow',
+                msg = self._colors('bright-yellow',
                     f"${stock.upper()} {col_name} has {direction} to {current:,.2f}, 5x higher than 5-day average ({five_day_avg:,.2f})")
+                logger.info(msg)
+                return msg
         return None
 
     def __check_zscore(self, stock: str, col: str, col_name: str, current: float, z_score_val: float) -> Optional[str]:
@@ -341,10 +317,14 @@ class Notifications:
         if abs(z_score_val) > 2:
             msg = f"${stock.upper()} {col_name} ({current:,.2f}) with a z-score of {z_score_val:.2f}, indicating a significant deviation"
             if 'call' in col.lower():
-                return self._colors('bright-red', msg)
+                msg = self._colors('bright-red', msg)
             elif 'put' in col.lower():
-                return self._colors('bright-green', msg)
-            return self._colors('purple', msg)
+                msg = self._colors('bright-green', msg)
+            
+            if msg:
+                logger.info(msg)
+                return msg
+
         return None
 
     def __check_percent_change(self, stock: str, col_name: str, current: float, previous: float) -> Optional[str]:
@@ -355,8 +335,10 @@ class Notifications:
             pct_change = (current - previous) / previous * 100
             if abs(pct_change) > 1000:
                 color = 'green' if pct_change > 2 else 'red'
-                return self._colors(color,
+                msg = self._colors(color,
                     f"${stock.upper()} {col_name} changed by {pct_change:,.2f}% from {previous:,.2f} to {current:,.2f}")
+                logger.info(msg)
+                return msg
         return None
 
     def __check_ma_deviation(self, stock: str, col_name: str, current: float, ma_20: float) -> Optional[str]:
@@ -366,12 +348,13 @@ class Notifications:
         if ma_20 is not None:
             deviation = (current - ma_20) / ma_20 * 100
             if abs(deviation) < 0.5:
-                return self._colors('white',
+                msg = self._colors('white',
                     f"${stock.upper()} {col_name} is {deviation:.2f}% within 1% of the 20-day moving average")
+                logger.info(msg)
+                return msg
         return None
 
-    def __check_historical_extremes(self, stock: str, col_name: str, current: float,
-                                  historical_max: float, historical_min: float) -> Optional[str]:
+    def __check_historical_extremes(self, stock: str, col_name: str, current: float, historical_max: float, historical_min: float) -> Optional[str]:
         """
         Generate notifications based on historical extremes.
         """
@@ -379,8 +362,10 @@ class Notifications:
             return self._colors('bold-blue',
                 f"${stock.upper()} {col_name} at new all-time high or within 1% of it: {current:,.2f}")
         elif current <= historical_min or (current <= historical_min * 1.01):
-            return self._colors('bold-yellow',
+            msg = self._colors('bold-yellow',
                 f"${stock.upper()} {col_name} plummeted to a new all-time low or within 1% of it: {current:,.2f}")
+            logger.info(msg)
+            return msg
         return None
 
     def __generate_text(self, stock: str, df: pd.DataFrame, col: str) -> Optional[str]:
@@ -421,13 +406,13 @@ class Notifications:
                 # Percent changes
                 or (self.__check_percent_change(stock, col_name, current, previous) if previous is not None else None)
                 # MA deviation
-                or (self.__check_ma_deviation(stock, col_name, current, ma_20) if ma_20 is not None else None)
+                # or (self.__check_ma_deviation(stock, col_name, current, ma_20) if ma_20 is not None else None)
                 # Historical extremes
                 or self.__check_historical_extremes(stock, col_name, current, historical_max, historical_min)
             )
 
+
             if notification:
-                logger.info(notification)
                 return notification
 
         except IndexError:
@@ -453,7 +438,7 @@ class Notifications:
         return txt
 
     def notifications(self, stock: str, n: int = 5, date: Optional[str] = None) -> List[str]:
-        """ 
+        """
         Generate notifications for a specific stock.
 
         Args:
@@ -475,13 +460,13 @@ class Notifications:
         if df.empty or df.shape[0] <= 10:
             return []
         
+        notifications = []
         for i in df.columns:
             txt = self.__generate_text(stock, df, i)
             if txt is not None:
                 # logger.info(f"Notification for {stock}: {txt}")
-                return [self.__remove_colors(txt)]
-
-
+                notifications.append(self.__remove_colors(txt))
+        return notifications
 
     def iterator(self, n: int = 5, date: Optional[str] = None) -> List[str]:
         """ 
@@ -500,7 +485,7 @@ class Notifications:
         out = []
         
         # for stock in tqdm(self.stocks['all_stocks'], desc="Generating Notifications"):
-        lot = sorted(self.stocks['all_stocks'])
+        lot = sorted(self.stocks['etf'])
         with logging_redirect_tqdm():
             pbar = tqdm(lot, desc="Stock Notifications")
             for stock in pbar:
@@ -527,5 +512,6 @@ if __name__ == '__main__':
     
     if out is not None:
         with open('alerts.txt', 'w') as f:
+            f.write(f"Option Alerts for Date: {dt.datetime.now().strftime('%Y-%m-%d')}\n")
             for line in out:
                 f.write(f"{line}\n")
