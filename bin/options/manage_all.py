@@ -6,25 +6,22 @@ Manager for the options data pipeline.
 
 """
 import sys
-
-from pathlib import Path    
-sys.path.append(str(Path(__file__).resolve().parents[2]))
-
+sys.path.append('/Users/jerald/Documents/Dir/Python/Stocks')
 import pandas as pd 
 import numpy as np 
 # import yfinance as yf 
 import datetime as dt 
 from tqdm import tqdm
+import re
 import time 
 import sqlite3 as sql
-import re
 
 from bin.options.stat.em import Exp
 from bin.options.optgd.option_chain import OptionChain
 from bin.options.stat.manage_stats import Stats
 # from bin.options.track.manage_tracking import Screener
+# from models.bsm.bs2 import bs_df 
 from bin.options.bsm.bs2 import bs_df 
-
 
 class Manager(OptionChain, Stats):
     def __init__(self, connections):
@@ -49,13 +46,22 @@ class Manager(OptionChain, Stats):
         """ Manage the Option Database. 
                 : Purge Inactive Contracts 
         """
-        for stock in tqdm(self.stocks['all_stocks']):
-            self._purge_inactive(stock)
+        print('WARNING: THIS WILL PURGE INACTIVE CONTRACTS DO YOU WITH TO CONTINUE?')
+        ans = input('Y/N: ')
+        if ans.lower() == 'y':
+            for stock in tqdm(self.stocks['all_stocks'][:]):
+                self._purge_inactive(stock)
+        else:
+            print('Exiting')
     
+    def _delete_option_greeks(self):
+        for stock in tqdm(self.stocks['all_stocks'][1:]):
+            self._delete_option_greeks_from_option_db(stock)
     
     def _test_import(self):
         print('Imported')  
         print(self.__dict__) 
+        
         
     def _join_purged_data(self, stock):
         q = f'''
@@ -69,6 +75,7 @@ class Manager(OptionChain, Stats):
         cursor.execute(q)
         df = pd.DataFrame(cursor.fetchall(), columns = [desc[0] for desc in cursor.description])
         
+        
     def describe_option(self, y):
         ''' Given an option contract symbol, using regular expressions to return the stock, expiration date, contract type, and strike price. '''
         valid = re.compile(r'(?P<stock>[A-Z]+)(?P<expiry>[0-9]+)(?P<type>[C|P])(?P<strike>[0-9]+)')
@@ -78,7 +85,7 @@ class Manager(OptionChain, Stats):
         strike = float(valid.match(y).group('strike')) / 1000
         return ("$"+stock, conttype, float(strike), expiration.strftime('%m/%d/%y'))
 
-    def parse_change_db(self, stock, today = True, bsdf = True):
+    def _parse_change_db(self, stock, today = True, bsdf = True):
         stock = stock.lower()
         if today: 
             q = f'''select * from {stock} where date(gatherdate) = (select max(date(gatherdate)) from {stock}) '''
@@ -105,17 +112,35 @@ class Manager(OptionChain, Stats):
         else: 
             return df 
 
-    def contract_lookup(self, stock, args):
+    def _contract_lookup(self, stock, args):
         if 'contractsymbol' in args:
-            q = f'''select * from "{stock}" where contractsymbol = "{args['contractsymbol']}"'''
+            q = f'''select * from {stock} where contractsymbol = "{args['contractsymbol']}"'''
         if 'strike' in args:
             if 'type' in args:
                 if 'expiry' in args:
-                    q = f'''select * from "{stock}" where strike = {args['strike']} and type = "{args['type']}" and expiry = "{args['expiry']}"'''
+                    q = f'''select * from {stock} where strike = {args['strike']} and type = "{args['type']}" and expiry = "{args['expiry']}"'''
         cursor = self.option_db.cursor()
         cursor.execute(q)
         df = pd.DataFrame(cursor.fetchall(), columns = [x[0] for x in cursor.description])
         return bs_df(df)
+    
+    def parse_change_db(self, df):
+        """ Parse the output from the change_db or any dataframe where contractsymbol is in the dataframe
+
+            args: 
+                -df : pd.DataFrame containing contractsymbol in the columns 
+        
+        """
+        out_desc = {x: self.describe_option(x) for x in df.contractsymbol.to_list()}
+        out_desc_df = pd.DataFrame(out_desc).T.reset_index()
+        out_desc_df.columns = ['contractsymbol', 'stock', 'type', 'strike', 'expiry']
+        out_desc_df.type = out_desc_df.type.map({'C': 'Call', 'P': 'Put'})
+        out_desc_df['stock'] = out_desc_df.stock.apply(lambda x: x.replace('$', ''))
+        out_df = out_desc_df.merge(df, on = 'contractsymbol')
+        out_df.strike = out_df.strike.astype(float)
+        out_df.expiry = pd.to_datetime(out_df.expiry)
+        return out_df.set_index(['gatherdate', 'contractsymbol']).sort_index().reset_index()
+    
     
     def option_custom_q(self, q, db = 'option_db'):
         cursor = sql.connect(self.connections[db]).cursor()
@@ -125,7 +150,8 @@ class Manager(OptionChain, Stats):
             return df
         else:
             return self.parse_change_db(df)
-
+            
+            
 if __name__ == "__main__":
     print("You Cant go back and change the begining, but you can start right now and change the ending.")
     
@@ -144,18 +170,12 @@ if __name__ == "__main__":
             }
 
     import sys
-    from pathlib import Path    
-    sys.path.append(str(Path(__file__).resolve().parents[3]))
+    sys.path.append('/Users/jerald/Documents/Dir/Python/Stocks')
     from bin.main import get_path
     
     connections = get_path()
     oc = Manager(connections)
     
-    # print(oc.option_custom_q('select * from aapl', db = 'change_db'))
-    # oc._init_em_tables()
-    
-    oc.close_connections()
-    
-    
-    
+    # print(oc.pcdb(oc.option_custom_q('select * from aapl', db = 'change_db')))
+    print(oc.option_custom_q('select * from spy', db = 'change_db'))
     

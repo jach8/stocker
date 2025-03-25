@@ -21,6 +21,7 @@ from bin.options.stat.cp import CP
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+
 class Stats(Exp, ChangeVars, CP):
     def __init__(self, connections: Dict[str, str]):
         super().__init__(connections)
@@ -55,7 +56,7 @@ class Stats(Exp, ChangeVars, CP):
             try:
                 self._initialize_change_db(stock)
             except Exception as e:
-                logger.error(f"Error initializing change db for {stock}: {e}")
+                logger.error(f"ChangeDB: Error initializing change db for {stock}: {e}")
 
     def _init_vol_db(self) -> None:
         """
@@ -68,7 +69,7 @@ class Stats(Exp, ChangeVars, CP):
             try:
                 self._initialize_vol_db(stock)
             except Exception as e:
-                logger.error(f"Error initializing vol db for {stock}: {e}")
+                logger.error(f"VolDB: Error initializing vol db for {stock}: {e}")
 
     def clear_tables(self) -> None:
         """
@@ -84,9 +85,9 @@ class Stats(Exp, ChangeVars, CP):
             for table in tables:
                 cursor.execute(f'DROP TABLE {table}')
             self.stats_db.commit()
-            logger.info("All tables cleared successfully.")
+            logger.info("__SYSTEM__: All tables cleared successfully.")
         except Exception as e:
-            logger.error(f"Error occurred while clearing tables: {e}")
+            logger.error(f"__SYSTEM__: Error occurred while clearing tables: {e}")
             raise
 
     def cp_query(self, stock: str, n: int = 30) -> pd.DataFrame:
@@ -106,7 +107,7 @@ class Stats(Exp, ChangeVars, CP):
         try:
             old_df = self.get_cp_from_purged_db(stock, n=n)
         except Exception as e:
-            logger.warning(f"manage_stats.cp_query: No old CP data for {stock}: {e}")
+            logger.warning(f"No old CP data for {stock}: {e}")
             old_df = pd.DataFrame()
         
         current_df = self._calculation(self._cp(stock, n=n))
@@ -135,6 +136,21 @@ class Stats(Exp, ChangeVars, CP):
                 reversed_dict[value].append(key)
         
         return {stockname: groups[0] if len(groups) == 1 else groups[1] for stockname, groups in reversed_dict.items()}
+    
+    def calculate_ivr(self, df: pd.DataFrame, col:str) -> pd.Series:
+        """
+        Calculate Implied Volatility Rank (IVR).
+        Args:
+            df (pd.DataFrame): DataFrame containing historical data.
+            col (str): Column name for IV data.	
+        Returns:
+            pd.Series: IVR values.
+        """
+        iv = df[col]
+        iv_52w_high = df[col].rolling(window=252, min_periods=1).max()
+        iv_52w_low = df[col].rolling(window=252,  min_periods=1).min()
+        ivr = (iv - iv_52w_low) / (iv_52w_high - iv_52w_low) * 100
+        return ivr
 
     def _mdf(self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -146,40 +162,23 @@ class Stats(Exp, ChangeVars, CP):
         Returns:
             pd.DataFrame: Modified DataFrame with computed statistics.
         """
-        df.total_oi = df.total_oi.ffill()
-        df.call_oi = df.call_oi.ffill()
-        df.put_oi = df.put_oi.ffill()
+        df['call_ivr'] = self.calculate_ivr(df, 'call_iv')
+        df['put_ivr'] = self.calculate_ivr(df, 'put_iv')
+        df['atm_ivr'] = self.calculate_ivr(df, 'atm_iv')
+        df['otm_ivr'] = self.calculate_ivr(df, 'otm_iv')
         df = df.round(4)
 
-        # Calculate Moving Averages
-        n_day = 3
-        sma_vol = df['total_vol'].rolling(n_day).mean()
-        std_vol = df['total_vol'].rolling(n_day).std()
-        sma_oi = df['total_oi'].rolling(n_day).mean()
-        std_oi = df['total_oi'].rolling(n_day).std()
-        avg_call_change = df['call_oi_chng'].rolling(n_day).mean()
-        avg_put_change = df['put_oi_chng'].rolling(n_day).mean()
-        pcr_vol = df['put_vol'] / df['call_vol']
-        avg_pcr_vol = pcr_vol.rolling(n_day).mean()
-        pcr_oi = df['put_oi'] / df['call_oi']
-        avg_pcr_oi = pcr_oi.rolling(n_day).mean()
-        
-        # Insert Moving Averages into DataFrame
-        df.insert(3, '30d_avg_oi', sma_oi)
-        df.insert(6, '30d_total_oi_std', std_oi)
-        df.insert(6, '30d_avg_call_change', avg_call_change)
-        df.insert(9, '30d_avg_put_change', avg_put_change)
-        df.insert(3, '30d_avg_vol', sma_vol)    
-        df.insert(4, '30d_pcr_vol', pcr_vol)
-        df.insert(5, '30d_avg_pcr_vol', avg_pcr_vol)
-        df.insert(5, '30d_pcr_oi', pcr_oi)
-        df.insert(6, '30d_avg_pcr_oi', avg_pcr_oi)
-        
         # Clean up DataFrame
-        df.dropna(inplace=True)
-        for col in ['30d_avg_vol', 'total_vol', '30d_avg_oi', 'total_oi', '30d_avg_call_change', '30d_avg_put_change']:
-            df[col] = df[col].astype(int)
+        vol_oi_cols = list(df.filter(regex = 'vol|oi').columns)
+        df[vol_oi_cols] = df[vol_oi_cols].astype(int)
+        oi_chng_cols = list(df.filter(regex='_chng').columns)
+        for col in oi_chng_cols:
+            df[col] = df[col].replace(0, np.nan)
+            df[col] = df[col].fillna(method='ffill')
         
+        drop_cols = list(df.filter(regex='pct').columns)
+        df = df.drop(drop_cols, axis=1)
+
         return df
 
     def _all_cp(self) -> pd.DataFrame:
@@ -200,17 +199,17 @@ class Stats(Exp, ChangeVars, CP):
                 df = pd.read_sql(f'''SELECT * FROM {stock} ORDER BY datetime(gatherdate) ASC''', self.vol_db, parse_dates=['gatherdate'])
                 df['gatherdate'] = pd.to_datetime(df['gatherdate'])
                 df.insert(0, 'stock', stock)
-                # df.insert(1, 'group', df['stock'].map(sg)) 
-                print(df)
+                df.insert(1, 'group', df['stock'].map(sg)) 
                 df = self._mdf(df)
                 if df.empty:
-                    logger.warning(f'manage_stats._all_cp(): No data for {stock}')
+                    logger.warning(f'No data for {stock}')
                     continue
                 out.append(df.tail(1))
             except Exception as e:
                 logger.error(f"Error processing stock {stock}: {e}")
         
         combined = pd.concat([x for x in out if not x.empty])
+        combined.to_sql('daily_option_stats', self.stats_db, if_exists='replace', index=False)
         return combined
 
 if __name__ == "__main__":
