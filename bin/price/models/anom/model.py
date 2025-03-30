@@ -257,14 +257,15 @@ class anomaly_model(setup):
             Returns:
                 Dictionary of best parameters
             """
-            logger.debug("Optimizing SVM parameters...")
+            logger.debug("Optimizing First SVM parameters...")
             
             # Define parameter grid
             param_grid = {
                 'kernel': ['rbf', 'poly', 'sigmoid'],
                 'nu': [0.01, 0.05, 0.1, 0.2],
                 'gamma': ['scale', 'auto'],
-                'degree': [2, 3, 4]  # For polynomial kernel
+                'degree': [2, 3, 4],  # For polynomial kernel
+                # 'average': [None, 'micro', 'macro', 'weighted']
             }
             
             # Initialize base model
@@ -274,13 +275,13 @@ class anomaly_model(setup):
             tscv = TimeSeriesSplit(n_splits=5)
             
             # Define custom scorer for anomaly detection
-            scorer = make_scorer(f1_score, pos_label=-1)
+            scorer = make_scorer(f1_score, average = 'micro')
 
             # Perform grid search
             grid_search = GridSearchCV(
                 base_model,
                 param_grid,
-                cv=tscv,
+                cv=5,
                 scoring=scorer,
                 n_jobs=-1
             )
@@ -314,7 +315,7 @@ class anomaly_model(setup):
         logger.debug("Running Local Outlier Factor...")
             
 
-        def optimize_lof_params(xtrain_df):
+        def optimize_lof_params(xtrain_df, ytrain_df):
             """
             Optimize LOF parameters using grid search with custom anomaly scorer
             Returns:
@@ -324,8 +325,8 @@ class anomaly_model(setup):
             
             # Define parameter grid
             param_grid = {
-                'n_neighbors': np.arange(2, 6),
-                'contamination': ['auto'],
+                'n_neighbors': np.arange(6, 28, 2),
+                'contamination': [0.05,0.06,0.07,0.08,0.09,0.1] ,
                 'novelty': [True]
             }
             
@@ -336,7 +337,7 @@ class anomaly_model(setup):
             tscv = TimeSeriesSplit(n_splits=5)
             
             # Define custom scorer for anomaly detection
-            scorer = make_scorer(f1_score, pos_label=-1)
+            scorer = make_scorer(f1_score, average = 'macro')
 
             # Perform grid search
             grid_search = GridSearchCV(
@@ -346,7 +347,7 @@ class anomaly_model(setup):
                 scoring=scorer,
                 n_jobs=-1
             )
-            grid_search.fit(xtrain_df, self.ytrain)
+            grid_search.fit(xtrain_df, ytrain_df)
 
             # Get best parameters
             return grid_search.best_params_
@@ -354,27 +355,15 @@ class anomaly_model(setup):
         # Create DataFrames with consistent feature names
         feature_cols = self.features_scaled.columns
         
-        # Convert training and test data to DataFrames with feature names
-        xtrain_df = pd.DataFrame(
-            self.xtrain,
-            columns=feature_cols,
-            index=self.xtrain.index
-        )
-        xtest_df = pd.DataFrame(
-            self.xtest,
-            columns=feature_cols,
-            index=self.xtest.index
-        )
-        
-        best_params = optimize_lof_params(xtrain_df)
+        best_params = optimize_lof_params(self.xtrain.values, self.ytrain.values)
         lof = LocalOutlierFactor(**best_params)
         
         # Fit using DataFrame with feature names
-        lof.fit(xtrain_df)
+        lof.fit(self.xtrain.values)
         
         # Predict using DataFrames to maintain feature names
-        train_pred = lof.predict(xtrain_df)
-        test_pred = lof.predict(xtest_df)
+        train_pred = lof.predict(self.xtrain.values)
+        test_pred = lof.predict(self.xtest.values)
         
         self.training_preds['LOF'], self.test_preds['LOF'] = \
             self.merge_preds(train_pred, test_pred, model_name="LOF")
@@ -600,6 +589,58 @@ class anomaly_model(setup):
             raise
         
         logger.debug("SVM_SGD fitting completed successfully")
+    
+    def _svm_gd_tuned(self) -> None:
+        """One-Class SVM with grid search for hyperparameter tuning"""
+        logger.debug("Running One-Class SVM with grid search...")
+        
+        # Define parameter grid
+        param_grid = {
+            'kernel': ['rbf', 'poly', 'sigmoid'],
+            'nu': [0.01, 0.05, 0.1, 0.2],
+            'gamma': ['scale', 'auto'],
+            'degree': [2, 3, 4],  # For polynomial kernel
+        }
+        
+        # Initialize base model
+        base_model = OneClassSVM()
+        
+        # Set up time series cross-validation
+        tscv = TimeSeriesSplit(n_splits=5)
+        
+        # Define custom scorer for anomaly detection we only want about 5% of the data to be anomalies
+        scorer = make_scorer(f1_score, average = 'micro')
+
+
+        # Perform grid search
+        grid_search = GridSearchCV(
+            base_model,
+            param_grid,
+            cv=tscv,
+            scoring=scorer,
+            n_jobs=-1
+        )
+        grid_search.fit(self.xtrain, self.ytrain)
+
+        # Get best parameters
+        best_params = grid_search.best_params_
+        logger.debug(f"Best parameters for SVM_GD: {best_params}")
+        
+        # Initialize and fit model with best parameters
+        svm = OneClassSVM(**best_params)
+        svm.fit(self.xtrain)
+        
+        # Predict (-1 for outliers, 1 for inliers)
+        train_pred = svm.predict(self.xtrain)
+        test_pred = svm.predict(self.xtest)
+        
+        self.training_preds['SVM_GD'], self.test_preds['SVM_GD'] = \
+            self.merge_preds(train_pred, test_pred, model_name="SVM_GD")
+            
+        self._log_value_counts(test_pred, "SVM_GD")
+        
+        self.models['SVM_GD'] = svm
+        self.model_training['SVM_GD'] = svm.score_samples(self.xtrain)
 
     def fit(self, threshold: float = 1.1618, **kwargs) -> None:
         """
@@ -614,7 +655,7 @@ class anomaly_model(setup):
         self._isolation_forest()
         self._svm()
         self._lof()
-        self._svm_sgd()
+        self._svm_gd_tuned()
         
         # Dimensionality reduction + K-means methods
         self._kmeans_pca(threshold)
@@ -624,8 +665,10 @@ class anomaly_model(setup):
         
         logger.info("Model fitting complete")
         for name in self.models:
-            logger.debug(
-                f"{name} predictions shape - "
-                f"Train: {self.training_preds[name].shape}, "
-                f"Test: {self.test_preds[name].shape}"
-            )
+            try:
+                training_preds = self.training_preds[name]
+                test_preds = self.test_preds[name]
+                self._log_value_counts(training_preds, name)
+                self._log_value_counts(test_preds, name)
+            except Exception as e:
+                logger.error(f"Failed to log value counts for {name}: {str(e)}")
