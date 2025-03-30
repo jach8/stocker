@@ -46,17 +46,18 @@ class viewer(models):
         ii = 0 
 
         # Plotting test predictions for each method
-        for i, p in enumerate(all_preds):
+        for i, p in enumerate(all_preds[:]):
             logger.debug(f"Plotting results for {p}")
-            ax[i].plot(self.test_preds[p]['close'], label='close')
+            cs = self.test_preds[p]['close']
+            sc = self.test_preds[p]
+            ax[ii].plot(self.test_preds[p]['close'], label='close')
             ax[ii].scatter(
                 self.test_preds[p].index, 
                 self.test_preds[p]['close'], 
                 c=self.test_preds[p][p]
             )
-            ax[i].set_title(f'{p} Anomalies')
-            ax[i].legend()
-            ax[i].grid()
+            ax[ii].set_title(f'{p} Anomalies')
+            ax[ii].legend()
             ii += 1
                     
         fig.autofmt_xdate()
@@ -72,4 +73,4 @@ class viewer(models):
             lodf.append(self.test_preds[i][i])
 
         self.last_pred = pd.concat(lodf, axis=1, keys=all_preds).tail(1)
-        logger.debug(f"Final predictions: {self.last_pred.values}")
+        logger.debug(f"Final prediction shape: {self.last_pred.shape}")

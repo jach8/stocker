@@ -67,6 +67,16 @@ class data:
             The converted target. 
         """
         return np.where(x > thresh, buy, np.where(x < -thresh, sell, hold))
+
+    def anomaly_convert(self, x, thresh=0.02, anom = -1, norm = 1):
+            """
+            Convert the target to anomaly detection. 
+            Args:
+                x: The target to convert. 
+            Returns:
+                The converted target. 
+            """
+            return np.where(np.abs(x) > thresh, anom, norm)
     
     def numeric_df(self, df):
         """
@@ -133,11 +143,7 @@ class data:
         """
         return TimeSeriesSplit(n_splits=n_splits).split(x, y)
 
-################################################################################################################
-################################################################################################################
-################################################################################################################
-################################################################################################################
-################################################################################################################
+
 
 class setup(data):
     def __init__(self, df, feature_names, target_names, stock):
@@ -169,13 +175,12 @@ class setup(data):
         if not isinstance(self.features, pd.DataFrame) or self.features.empty:
             raise ValueError("Features DataFrame is empty or not properly initialized")
             
-        if not self.target_names:
-            raise ValueError("Target names must be specified")
+        # if not self.target_names:raise ValueError("Target names must be specified")
             
-        self.scaler = kwargs.get('scaler', MinMaxScaler())
+        self.scaler = kwargs.get('scaler', StandardScaler())
         self.discretizer = kwargs.get('discritize', False)
-        self.y_format = kwargs.get('y_format', 'binary')
-        self.test_size = kwargs.get('test_size', 0.2)
+        self.y_format = kwargs.get('y_format', 'anomaly_convert')  # Default to anomaly detection
+        self.test_size = kwargs.get('test_size', 0.1)
         
         # Scale features first
         self.features_scaled = pd.DataFrame(
@@ -214,31 +219,38 @@ class setup(data):
         
         # Handle different y_format cases
         target_data = self.df[self.target_names]
-        
-        if self.y_format == 'binary':
-            anoms = pd.DataFrame(
-                self.binary_convert(target_data, thresh=0.03, buy=1, sell=-1),
-                columns=self.target_names,
-                index=self.df.index
-            )
-        else:  # 'cont' or any other format
-            anoms = target_data.copy()
-            
+        func = getattr(self, self.y_format)
+        anoms = target_data.apply(func)
+
+        counts = np.unique(anoms, return_counts=True)
+        logger.debug(f"Target Initialized with {len(counts[0])} classes. The counts are: {dict(zip(*counts))}")
         # logger.debug(f"Target shape: {anoms.shape}")
             
         self.ytrain = anoms.loc[self.xtrain.index]
         self.ytest = anoms.loc[self.xtest.index]
         self.xtrain = self.features_scaled.loc[self.xtrain.index]  # Use scaled features
         self.xtest = self.features_scaled.loc[self.xtest.index]    # Use scaled features
-        
-        # logger.debug(f"Training set shape: {self.xtrain.shape}")
-        # logger.debug(f"Testing set shape: {self.xtest.shape}")
-            
-        return self
     
- 
+        return self
 
-
+    def merge_preds(self, trainpred, testpred, model_name='anomaly'):
+        """Merge predictions with price data"""
+        if not isinstance(trainpred, (pd.Series, pd.DataFrame)):
+            trainpred = pd.DataFrame(trainpred, index=self.ytrain.index, columns=[model_name])
+            testpred = pd.DataFrame(testpred, index=self.ytest.index, columns=[model_name])
+            
+        trainpred = self.price_data.loc[self.xtrain.index].join(trainpred)
+        testpred = self.price_data.loc[self.xtest.index].join(testpred)
+        return trainpred, testpred
+    
+    def pca_pred(self, pred):
+        """Handle dimensionality reduction predictions"""
+        if not isinstance(pred, (pd.Series, pd.DataFrame)):
+            pred = pd.DataFrame(pred, index=self.features_scaled.index)
+            
+        trainpred = self.price_data.loc[self.xtrain.index].join(pred.loc[self.xtrain.index])
+        testpred = self.price_data.loc[self.xtest.index].join(pred.loc[self.xtest.index])
+        return trainpred, testpred
 
 
 if __name__ == "__main__":
@@ -252,23 +264,23 @@ if __name__ == "__main__":
     # Get data
     get_path = get_path()
     m = Manager(get_path)
-    d = m.Pricedb.model_preparation('spy', start_date = dt.datetime(2006, 1, 1))
+    d = m.Pricedb.model_preperation('spy', start_date = dt.datetime(2006, 1, 1))
     print(d['features'])
+
+    
+    # Test setup functionality
+    # dc = setup(d['df'], d['features'], d['target'], d['stock'])
+    # dc.initialize('EMA')
+    # logger.info("Setup test completed successfully")
+
     
     # Test anomaly model
     sys.path.append(str(Path(__file__).resolve().parent))
     
-    from anom.model import anomaly_model
+    from anom.model_new import StackedAnomalyModel 
     from anom.view import viewer
-    model = viewer(
-        df=d['df'],
-        feature_names=d['features'],
-        target_names=d['target'],
-        stock=d['stock'],
-        verbose=True
-    )
-    model.initialize('STOCH|RSI|ATH|ATL')  # Initialize with EMA features only
-    model.fit()
+    
+    # Initialize and fit the anomaly model
+    anomaly_model = StackedAnomalyModel(d['df'], d['features'], d['target'], d['stock'])
+    anomaly_model.fit()
 
-    # Plot The result: 
-    model.general_plot()
