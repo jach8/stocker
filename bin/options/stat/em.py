@@ -192,7 +192,8 @@ class Exp(Connector):
 if __name__ == "__main__":
     print("Control what you can Control.")
     import sys 
-    # Set Path 
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).resolve().parents[3])) 
     from bin.main import get_path
     connections = get_path()
     oc = Exp(connections)
