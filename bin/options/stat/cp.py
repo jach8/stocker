@@ -85,53 +85,36 @@ class CP(Connector):
         valid = cursor.execute(q).fetchone()[0]
         return bool(valid)
 
-    def _cp(self, stock: str, n: int = 300) -> pd.DataFrame:
+    def _get_query_str(self, stock: str) -> str:
+        q = f'''
+            SELECT 
+            MAX(datetime(gatherdate)) AS gatherdate,
+            CAST(SUM(volume) AS INT) AS total_vol,
+            CAST(SUM(cash) AS FLOAT) AS total_prem, 
+            CAST(SUM(openinterest) AS INT) AS total_oi,
+            CAST(SUM(CASE WHEN type = 'Call' THEN volume ELSE 0 END) AS INT) AS call_vol,
+            CAST(SUM(CASE WHEN type = 'Put' THEN volume ELSE 0 END) AS INT) AS put_vol,
+            CAST(SUM(CASE WHEN type = 'Call' THEN openinterest ELSE 0 END) AS INT) AS call_oi, 
+            CAST(SUM(CASE WHEN type = 'Put' THEN openinterest ELSE 0 END) AS INT) AS put_oi,
+            CAST(AVG(CASE WHEN type = 'Call' THEN impliedvolatility ELSE 0 END) AS FLOAT) AS call_iv,
+            CAST(AVG(CASE WHEN type = 'Put' THEN impliedvolatility ELSE 0 END) AS FLOAT) AS put_iv,
+            CAST(AVG(CASE WHEN stk_price / strike BETWEEN 0.99 AND 1.01 THEN impliedvolatility ELSE 0 END) AS FLOAT) AS atm_iv, 
+            CAST(AVG(CASE WHEN stk_price / strike NOT BETWEEN 0.99 AND 1.01 THEN impliedvolatility ELSE 0 END) AS FLOAT) AS otm_iv
+            FROM {stock}
+            GROUP BY date(gatherdate)
+            ORDER BY gatherdate ASC
+            '''
+        return q
+
+    def _cp(self, stock: str) -> pd.DataFrame:
         """
         Calculate the daily option stats for each stock: 
-            Columns:
-                call_vol: The total volume of call options traded for that day.
-                put_vol: The total volume of put options traded for that day.
-                total_vol: The total volume of options traded for that day.
-                call_oi: The total open interest of call options for that day.
-                put_oi: The total open interest of put options for that day.
-                total_oi: The total open interest of options for that day.
-                call_prem: The total premium of call options for that day.
-                put_prem: The total premium of put options for that day.
-                total_prem: The total premium of options for that day.
-                call_iv: The average implied volatility of call options for that day.
-                put_iv: The average implied volatility of put options for that day.
-                atm_iv: The average implied volatility of options that are at the money for that day.
-                otm_iv: The average implied volatility of options that are out of the money for that day.
-                put_spread: The average spread (ask - bid) of put options for that day.
-                call_spread: The average spread (ask - bid) of call options for that day.
             args:
                 stock: str: stock symbol
-                n: int: number of days to go back (deprecated)
             returns:
                 pd.DataFrame: DataFrame of the option chain
         """
-        q = f'''
-        SELECT 
-        MAX(datetime(gatherdate)) AS gatherdate,
-        CAST(SUM(CASE WHEN type = 'Call' THEN volume ELSE 0 END) AS INT) AS call_vol,
-        CAST(SUM(CASE WHEN type = 'Put' THEN volume ELSE 0 END) AS INT) AS put_vol,
-        CAST(SUM(volume) AS INT) AS total_vol,
-        CAST(SUM(CASE WHEN type = 'Call' THEN openinterest ELSE 0 END) AS INT) AS call_oi, 
-        CAST(SUM(CASE WHEN type = 'Put' THEN openinterest ELSE 0 END) AS INT) AS put_oi,
-        CAST(SUM(openinterest) AS INT) AS total_oi,
-        CAST(SUM(CASE WHEN type = 'Call' THEN cash ELSE 0 END) AS FLOAT) AS call_prem, 
-        CAST(SUM(CASE WHEN type = 'Put' THEN cash ELSE 0 END) AS FLOAT) AS put_prem,
-        CAST(SUM(cash) AS FLOAT) AS total_prem, 
-        CAST(AVG(CASE WHEN type = 'Call' THEN impliedvolatility ELSE 0 END) AS FLOAT) AS call_iv,
-        CAST(AVG(CASE WHEN type = 'Put' THEN impliedvolatility ELSE 0 END) AS FLOAT) AS put_iv,
-        CAST(AVG(CASE WHEN stk_price / strike BETWEEN 0.99 AND 1.01 THEN impliedvolatility ELSE 0 END) AS FLOAT) AS atm_iv, 
-        CAST(AVG(CASE WHEN stk_price / strike NOT BETWEEN 0.99 AND 1.01 THEN impliedvolatility ELSE 0 END) AS FLOAT) AS otm_iv,
-        CAST(AVG(CASE WHEN type = 'Put' THEN ask - bid ELSE 0 END) AS FLOAT) AS put_spread,
-        CAST(AVG(CASE WHEN type = 'Call' THEN ask - bid ELSE 0 END) AS FLOAT) AS call_spread
-        FROM {stock}
-        GROUP BY date(gatherdate)
-        ORDER BY gatherdate ASC
-        '''
+        q = self._get_query_str(stock)
         try:
             logging.info(f"DAILY OPTION STATS: Running _cp for {stock.upper()}")
             return self.__custom_query_option_db(q, self.option_db)
@@ -296,84 +279,66 @@ class CP(Connector):
             self.vol_db.rollback()
             raise
 
-    def __max_dates(self, stock: str) -> str:
-        ''' Returns the max date in the database '''
-        q0 = f'''
-            SELECT
-            date(gatherdate) AS gatherdate,
-            MAX(datetime(gatherdate)) AS maxdate
-            FROM {stock}
-            GROUP BY date(gatherdate)
-        '''
+    def get_cp_from_purged_db(self, stock: str,  inactive_db: str = None) -> pd.DataFrame:
         try:
-            cursor = self.inactive_db.cursor()
-            cursor.execute(q0)
-            df0 = pd.DataFrame(cursor.fetchall(), columns=['gatherdate', 'maxdate'])
-            return ','.join([f"'{x}'" for x in df0['maxdate']])
-        except sql.Error as e:
-            logging.error(f"DAILY OPTION STATS: Error fetching max dates for {stock}: {e}", exc_info=True)
-            raise
+            # Check if the stock is in the inactive_db
+            if inactive_db is None:
+                inactive_db = self.inactive_db
+            else:
+                print('...Connecting\n\n')
+                try:
+                    inactive_db = sql.connect(inactive_db)
+                    print('Successfully connected to inactive_db')
+                except sql.Error as e:
+                    print()
+                    logging.error(f"Daily OptionStats: Failed to connect to inactive_db: {e}", exc_info=True)
+                    raise
 
-    def get_cp_from_purged_db(self, stock: str, n: int = 300) -> pd.DataFrame:
-        try:
-            # gdate = self.__max_dates(stock)
-            q = f'''
-            SELECT 
-            MAX(datetime(gatherdate)) AS gatherdate,
-            CAST(SUM(CASE WHEN type = 'Call' THEN volume ELSE 0 END) AS INT) AS call_vol,
-            CAST(SUM(CASE WHEN type = 'Put' THEN volume ELSE 0 END) AS INT) AS put_vol,
-            CAST(SUM(volume) AS INT) AS total_vol,
-            CAST(SUM(CASE WHEN type = 'Call' THEN openinterest ELSE 0 END) AS INT) AS call_oi, 
-            CAST(SUM(CASE WHEN type = 'Put' THEN openinterest ELSE 0 END) AS INT) AS put_oi,
-            CAST(SUM(openinterest) AS INT) AS total_oi,
-            CAST(SUM(CASE WHEN type = 'Call' THEN cash ELSE 0 END) AS FLOAT) AS call_prem, 
-            CAST(SUM(CASE WHEN type = 'Put' THEN cash ELSE 0 END) AS FLOAT) AS put_prem,
-            CAST(SUM(cash) AS FLOAT) AS total_prem, 
-            CAST(AVG(CASE WHEN type = 'Call' THEN impliedvolatility ELSE 0 END) AS FLOAT) AS call_iv,
-            CAST(AVG(CASE WHEN type = 'Put' THEN impliedvolatility ELSE 0 END) AS FLOAT) AS put_iv,
-            CAST(AVG(CASE WHEN stk_price / strike BETWEEN 0.99 AND 1.01 THEN impliedvolatility ELSE 0 END) AS FLOAT) AS atm_iv, 
-            CAST(AVG(CASE WHEN stk_price / strike NOT BETWEEN 0.99 AND 1.01 THEN impliedvolatility ELSE 0 END) AS FLOAT) AS otm_iv,
-            CAST(AVG(CASE WHEN type = 'Put' THEN ask - bid ELSE 0 END) AS FLOAT) AS put_spread,
-            CAST(AVG(CASE WHEN type = 'Call' THEN ask - bid ELSE 0 END) AS FLOAT) AS call_spread
-            FROM {stock}
-            GROUP BY date(gatherdate)
-            ORDER BY gatherdate ASC
-            '''
-            df = self.__custom_query_option_db(q, self.inactive_db)
+            q = self._get_query_str(stock)
+            df = self.__custom_query_option_db(q, inactive_db)
             return self._calculation(df)
         except Exception as e:
-            logging.error(f"DAILY OPTION STATS: Error getting CP from purged db for {stock}", exc_info=False)
+            logging.error(f"Daily OptionStats: Error getting CP from purged db for {stock}", exc_info=True)
             pass
 
-    def _intialized_cp(self, stock: str, n: int = 30) -> None:
+    def _intialized_cp(self, stock: str,  inactive_db:str = None) -> None:
         ''' Initializes the cp table '''
         try:
-            # old_df = self.get_cp_from_purged_db(stock, n=n)
-            old_df = pd.DataFrame()
+            old_df = self.get_cp_from_purged_db(stock,inactive_db = inactive_db)
         except:
             old_df = pd.DataFrame()
         try:
-            current_df = self._calculation(self._cp(stock, n=n))
+            current_df = self._calculation(self._cp(stock))
             new_df = pd.concat([old_df, current_df], axis=0).reset_index().drop_duplicates()
-            new_df.to_sql(f'{stock}', self.vol_db, if_exists='append', index=False)
+            new_df.to_sql(f'{stock}', self.vol_db, if_exists='replace', index=False)
             self.vol_db.commit()
-            logging.info(f"DAILY OPTION STATS: Initialized CP for {stock}")
+            # logging.info(f"Daily OptionStats: Initialized CP for {stock}")
         except Exception as e:
-            logging.error(f"DAILY OPTION STATS: Error initializing CP for {stock}: {e}", exc_info=True)
+            logging.error(f"Daily OptionStats: Error initializing CP for {stock}: {e}", exc_info=True)
             self.vol_db.rollback()
             raise
 
-    def cp_query(self, stock: str, n: int = 30) -> pd.DataFrame:
+    def cp_query(self, stock: str, inactive_db:str = None ) -> pd.DataFrame:
         try:
-            old_df = self.get_cp_from_purged_db(stock, n=n)
+            old_df = self.get_cp_from_purged_db(stock, inactive_db=inactive_db)
         except:
             old_df = pd.DataFrame()
         try:
-            current_df = self._calculation(self._cp(stock, n=n))
+            current_df = self._calculation(self._cp(stock,))
             new_df = pd.concat([old_df, current_df], axis=0).reset_index()
             return new_df
         except Exception as e:
-            logging.error(f"DAILY OPTION STATS: Error in CP query for {stock}: {e}", exc_info=True)
+            logging.error(f"Daily OptionStats: Error in CP query for {stock}: {e}", exc_info=True)
+            raise
+
+    def merge_cp(self, stock: str, inactive_db: str = None) -> pd.DataFrame:
+        try:
+            old_df = self.get_cp_from_purged_db(stock, inactive_db=inactive_db)
+            current_df = self._calculation(self._cp(stock))
+            new_df = pd.concat([old_df, current_df], axis=0).reset_index()
+            return new_df
+        except Exception as e:
+            logging.error(f"Daily OptionStats: Error merging CP for {stock}: {e}", exc_info=True)
             raise
 
 if __name__ == "__main__":
@@ -384,17 +349,18 @@ if __name__ == "__main__":
     connections = get_path()
     print()
     cp = CP(connections)
+    ib = '/Volumes/Backup Plus/options-backup/inactive.db'
+
+
+    # for stock in tqdm(cp.all_stocks):
+    #     # Initialize the vol_db
+    #     try:
+    #         cp._intialized_cp(stock, inactive_db = ib)
+    #     except Exception as e:
+    #         logging.error(f"Daily OptionStats: Error initializing vol_db for {stock}: {e}", exc_info=True)
+
     
-    try:
-        current= pd.read_sql('select * from aapl', cp.vol_db, parse_dates=['gatherdate'], index_col='gatherdate').sort_index()
-        print(current)
-        print(current.dropna())
-        print()
-        print(current.groupby(current.index.date).sum())
-        print()
-        print(cp._calculation(cp._cp('aapl')))
-    except Exception as e:
-        logging.error(f"DAILY OPTION STATS: Error in main script: {e}", exc_info=True)
-        raise e
-    finally:
-        cp.close_connections()
+
+    print('\n')
+    df = pd.read_sql(f'select * from spy', cp.vol_db)
+    print(df)
