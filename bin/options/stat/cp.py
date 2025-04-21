@@ -344,7 +344,8 @@ class CP(Connector):
 if __name__ == "__main__":
     print("(10.4) Spiritual Intelligence, Knowledge, freedom from false perception, compassion, trufhfullness, control of the senses, control of the mind, happiness, unhappiness, birth, death, fear and fearlessness, nonviolence, equanimity,  contentment, austerity, charity, fame, infamy; all these variegated diverse qualities of all living entities originate from Me alone.")
     import sys 
-    sys.path.append('/Users/jerald/Documents/Dir/Python/Stocks')
+    from pathlib import Path
+    sys.path.append(str(Path(__file__).resolve().parents[3])) 
     from bin.main import get_path
     connections = get_path()
     print()
