@@ -2,15 +2,14 @@
 # from bin.models.option_stats_model_setup import data as OptionsData
 # from bin.models.indicator_model_setup import data as IndicatorData
 
-from dataclasses import dataclass, field
+from datetime import datetime, date
 import pandas as pd
-from typing import Optional, Any, Dict
-from pathlib import Path
 import re
 import shutil
-from datetime import datetime, date
-from bin.main import get_path
-from main import Manager
+from pathlib import Path
+
+from dataclasses import dataclass, field
+from typing import Optional, Any, Dict
 
 @dataclass(slots=True)
 class StockData:
@@ -18,10 +17,14 @@ class StockData:
     manager: Any
     cache_dir: str = "data_cache"
     _price_data: Optional[pd.DataFrame] = field(init=False, default=None, repr=False, compare=False)
+    _simulated_prices: Optional[pd.DataFrame] = field(init=False, default=None, repr=False, compare=False)
+    _simulated_prices_cache: Optional[pd.DataFrame] = field(init=False, default=None, repr=False, compare=False)
     _indicators: Optional[pd.DataFrame] = field(init=False, default=None, repr=False, compare=False)
     _daily_option_stats: Optional[pd.DataFrame] = field(init=False, default=None, repr=False, compare=False)
     _option_chain: Optional[pd.DataFrame] = field(init=False, default=None, repr=False, compare=False)
     _daily_option_stats_cache: Dict[str, pd.DataFrame] = field(init=False, default_factory=dict, repr=False, compare=False)
+    X: Optional[pd.DataFrame] = field(init=False, default=None, repr=False, compare=False)
+    y: Optional[pd.DataFrame] = field(init=False, default=None, repr=False, compare=False)
 
     def __post_init__(self):
         Path(self.cache_dir).mkdir(exist_ok=True)
@@ -93,7 +96,7 @@ class StockData:
     def indicators(self) -> pd.DataFrame:
         if self._indicators is None:
             self._indicators = self._load_or_cache(
-                "indicators", lambda: self.manager.Pricedb.get_multi_frame(self.stock)
+                "indicators", lambda: self.manager.Pricedb.get_daily_technicals(self.stock)
             )
         return self._indicators
 
@@ -151,23 +154,6 @@ class StockData:
             )
         return self._option_chain
 
-    def get_features(self, drop_columns: str = None) -> pd.DataFrame:
-        """
-        Base feature extraction for ML.
-        
-        Args:
-            drop_columns (str, optional): Regex pattern to drop columns from daily_option_stats.
-        
-        Returns:
-            pd.DataFrame: Features with price_trend and volume_trend.
-        """
-        option_stat = self.get_daily_option_stats(dropCols=drop_columns)
-        price_data = self.price_data
-        features = option_stat.join(price_data, how="inner", on = 'date')
-        features["price_trend"] = features["close"].pct_change()
-        features["volume_trend"] = features["volume"].pct_change()
-        return features.dropna()
-
     def clear_cache(self, disk: bool = False, stock_specific: bool = True) -> None:
         """
         Clear in-memory and optionally disk caches.
@@ -194,14 +180,50 @@ class StockData:
                 shutil.rmtree(self.cache_dir)
                 Path(self.cache_dir).mkdir()
 
+    def get_features(self, drop_columns: str = None) -> pd.DataFrame:
+        """
+        Base feature extraction for ML.
+        
+        Args:
+            drop_columns (str, optional): Regex pattern to drop columns from daily_option_stats.
+        
+        Returns:
+            pd.DataFrame: Combined DataFrame of daily_option_stats and price_data.
+        """
+        option_stat = self.get_daily_option_stats(dropCols=drop_columns)
+        price_data = self.indicators
+        option_stat = option_stat.resample('1D').sum()
+        price_df = price_data.loc[option_stat.index[0]:]
+        option_df = option_stat.loc[price_df.index[0]:]
+        df = pd.merge(option_df, price_df, left_index=True, right_index=True)
+        return df
+
 
 
 if __name__ == "__main__":
     from main import Manager 
-    
+    import numpy as np 
     # Example usage
     manager = Manager()  # Your Manager class
     sd = StockData(stock="spy", manager=manager, cache_dir="data_cache")
+    sd.clear_cache(disk=True, stock_specific=False)
+    df = sd.get_features()
+    x = df.drop(columns=["close", "open", "high", "low"])
+    y = df["close"].pct_change().shift(-1)
+    y = pd.Series(np.sign(y), index=y.index)
+    y = y.dropna()
+    x = x.loc[y.index]
 
-    # Access data lazily
-    print(sd.daily_option_stats.index)
+    print(df)
+
+
+    # from bin.models.anom.model import StackedAnomalyModel
+    # Example usage of StackedAnomalyModel
+    # model = StackedAnomalyModel()
+    # preds = model.train(
+    #     stock = sd.stock, 
+    #     x = x,
+    #     y = y,
+    #     contamination=0.01
+    # )
+    # print(preds)
